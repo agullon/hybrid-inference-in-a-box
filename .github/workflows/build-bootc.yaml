@@ -47,6 +47,7 @@ jobs:
         id: build
         run: |
           sudo podman build \
+            --isolation chroot \
             --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} \
             --file Containerfile .
 
