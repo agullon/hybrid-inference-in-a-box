@@ -37,6 +37,10 @@ bootc image (CentOS Stream 10)
 podman build -t hybrid-inference-bootc:latest -f Containerfile .
 ```
 
+CI builds run automatically on push to `main` and publish the image to
+`ghcr.io/<owner>/hybrid-inference-in-a-box:<tag>`. See
+[`.github/workflows/build-bootc.yaml`](.github/workflows/build-bootc.yaml).
+
 ## First Boot
 
 ### 1. Boot the image
@@ -44,6 +48,27 @@ podman build -t hybrid-inference-bootc:latest -f Containerfile .
 Deploy via VM (qcow2), bare metal (ISO), or cloud (AMI). The image boots
 with MicroShift enabled. Infrastructure pods will be in
 `CreateContainerConfigError` state — this is expected.
+
+**Quick start with KVM/libvirt** — the included helper script converts the
+container image to a qcow2 disk and creates a VM:
+
+```bash
+# Full mode (8GB RAM, 4 vCPUs, 100GB disk)
+./scripts/start_vm_bootc.sh
+
+# Slim mode (4GB RAM, 2 vCPUs, 40GB disk)
+./scripts/start_vm_bootc.sh --mode=slim
+
+# Specify a custom image and VM name
+./scripts/start_vm_bootc.sh --image=ghcr.io/org/hybrid-inference-in-a-box:main my-vm
+
+# Delete a VM
+./scripts/start_vm_bootc.sh --delete my-vm
+```
+
+The script auto-detects the image from the git remote or the GHCR API, uses
+`bootc-image-builder` to produce the qcow2, sets the deployment mode, and
+waits for the VM to get an IP address.
 
 ### 2. Configure the router
 
@@ -129,8 +154,10 @@ sudo configure-router.sh \
 ## File Layout
 
 ```
-hybrid-inference-bootc/
+hybrid-inference-in-a-box/
 ├── Containerfile
+├── .github/workflows/
+│   └── build-bootc.yaml              ← CI/CD: build & push to GHCR
 ├── manifests/semantic-router/
 │   ├── kustomization.yaml
 │   ├── base/
@@ -154,8 +181,9 @@ hybrid-inference-bootc/
 │       ├── config-slim.yaml.tmpl
 │       └── envoy-slim.yaml.tmpl
 ├── scripts/
-│   ├── configure-router.sh
-│   ├── select-mode.sh
+│   ├── configure-router.sh            ← post-boot configuration
+│   ├── select-mode.sh                 ← switch full ↔ slim
+│   ├── start_vm_bootc.sh              ← create VM from bootc image
 │   └── make-rshared.service
 └── README.md
 ```
