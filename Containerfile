@@ -53,27 +53,37 @@ RUN useradd -m -G wheel admin && \
 # ─────────────────────────────────────────────────────────────────────────────
 # Pre-pull container images for air-gapped operation
 # ─────────────────────────────────────────────────────────────────────────────
-# These images are copied into CRI-O's container storage so MicroShift
-# doesn't need to pull them from the internet on first boot.
-#
-# NOTE: The skopeo containers-storage transport requires the CRI-O storage
-# backend to be available at build time. If this fails on your build host,
-# alternatives include:
-#   - podman pull + copy the image store layer
-#   - MicroShift's mirror-images.sh helper
-#   - directory-based mirroring with CRI-O additional image stores
-RUN skopeo copy \
-    docker://ghcr.io/vllm-project/semantic-router/vllm-sr:latest \
-    containers-storage:ghcr.io/vllm-project/semantic-router/vllm-sr:latest && \
-    skopeo copy \
-    docker://ghcr.io/vllm-project/semantic-router/extproc:latest \
-    containers-storage:ghcr.io/vllm-project/semantic-router/extproc:latest && \
-    skopeo copy \
-    docker://docker.io/envoyproxy/envoy:v1.31.7 \
-    containers-storage:docker.io/envoyproxy/envoy:v1.31.7 && \
-    skopeo copy \
-    docker://docker.io/prom/prometheus:v2.53.3 \
-    containers-storage:docker.io/prom/prometheus:v2.53.3 && \
-    skopeo copy \
-    docker://docker.io/grafana/grafana:11.4.0 \
-    containers-storage:docker.io/grafana/grafana:11.4.0
+# Images are saved to dir: format at build time (no user-namespace needed),
+# then copied into CRI-O's containers-storage at boot via a systemd
+# ExecStartPre hook — the same pattern used by upstream MicroShift.
+RUN echo "root:100000:65536" > /etc/subuid && \
+    echo "root:100000:65536" > /etc/subgid && \
+    IMAGES=" \
+      ghcr.io/vllm-project/semantic-router/vllm-sr:latest \
+      ghcr.io/vllm-project/semantic-router/extproc:latest \
+      docker.io/envoyproxy/envoy:v1.31.7 \
+      docker.io/prom/prometheus:v2.53.3 \
+      docker.io/grafana/grafana:11.4.0" && \
+    mkdir -p /usr/lib/containers/storage && \
+    for img in ${IMAGES}; do \
+      sha="$(echo "${img}" | sha256sum | awk '{print $1}')" && \
+      skopeo copy --preserve-digests \
+        "docker://${img}" "dir:/usr/lib/containers/storage/${sha}" && \
+      echo "${img},${sha}" >> /usr/lib/containers/storage/image-list.txt ; \
+    done && \
+    rm -f /etc/subuid /etc/subgid
+
+# Install a systemd hook that copies the embedded images into CRI-O storage
+# on first boot, before MicroShift starts pulling pods.
+RUN printf '#!/bin/bash\nset -euo pipefail\n\
+IMG_LIST=/usr/lib/containers/storage/image-list.txt\n\
+[ -f "$IMG_LIST" ] || exit 0\n\
+while IFS="," read -r img sha; do\n\
+  skopeo copy --preserve-digests \\\n\
+    "dir:/usr/lib/containers/storage/${sha}" \\\n\
+    "containers-storage:${img}"\n\
+done < "$IMG_LIST"\n' > /usr/local/bin/embed-images.sh && \
+    chmod +x /usr/local/bin/embed-images.sh && \
+    mkdir -p /etc/systemd/system/microshift.service.d && \
+    printf '[Service]\nExecStartPre=/usr/local/bin/embed-images.sh\n' \
+      > /etc/systemd/system/microshift.service.d/embed-images.conf
