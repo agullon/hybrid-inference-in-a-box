@@ -75,17 +75,37 @@ waits for the VM to get an IP address.
 
 ### 2. Configure the router
 
-```bash
-sudo configure-router.sh \
-  --endpoint litellm.example.com \
-  --api-key sk-your-key-here \
-  --model-coding Mistral-Small-24B-W8A8 \
-  --model-general Granite-3.3-8B-Instruct
+Create a `router.yaml` with your models, endpoints, and API keys
+(see [`config/router.yaml.example`](config/router.yaml.example)):
+
+```yaml
+providers:
+  models:
+    - name: "Mistral-Small-24B-W8A8"
+      endpoints:
+        - name: "litellm"
+          weight: 1
+          endpoint: "litellm.example.com:443"
+          protocol: "https"
+      access_key: "sk-your-key-here"
+
+    - name: "Granite-3.3-8B-Instruct"
+      endpoints:
+        - name: "litellm"
+          weight: 1
+          endpoint: "litellm.example.com:443"
+          protocol: "https"
+      access_key: "sk-your-key-here"
+
+  default_model: "Granite-3.3-8B-Instruct"
 ```
 
-Or run without arguments for interactive prompts:
+Each model can point to a different endpoint and API key. The rest of the
+router config (signals, routing decisions, listeners) comes from the
+baked-in template.
+
 ```bash
-sudo configure-router.sh
+sudo configure-router.sh router.yaml
 ```
 
 ### 3. Wait for pods to start
@@ -127,32 +147,30 @@ curl -s http://<IP>:30801/v1/chat/completions \
 sudo select-mode.sh slim
 sudo systemctl restart microshift
 # Wait ~30s for MicroShift to restart
-sudo configure-router.sh --endpoint ... --api-key ... \
-  --model-coding ... --model-general ...
+sudo configure-router.sh router.yaml
 ```
 
 ## Reconfiguring
 
-Re-run `configure-router.sh` at any time with new values. It will update
-the ConfigMap/Secret and restart the deployment.
+Edit `router.yaml` (models, endpoints, API keys) and re-run
+`configure-router.sh`. It updates the ConfigMap/Secret and restarts the
+deployment.
 
 ```bash
-sudo configure-router.sh \
-  --endpoint new-litellm.example.com \
-  --api-key sk-new-key \
-  --model-coding NewCodingModel \
-  --model-general NewGeneralModel
+sudo configure-router.sh router.yaml
 ```
 
 ## What's Baked vs Runtime
 
-| Baked in image (immutable) | Configured post-boot |
+| Baked in image (immutable) | Configured post-boot (`router.yaml`) |
 |---|---|
-| Namespace, Deployments, Services | LiteLLM endpoint URL |
-| Prometheus + Grafana (full mode) | LiteLLM API key |
-| Container images (pre-pulled) | Model names |
-| Firewall rules, systemd units | Routing decisions |
-| Config templates | Envoy upstream (slim mode) |
+| Namespace, Deployments, Services | Model names |
+| Prometheus + Grafana (full mode) | LiteLLM endpoint(s) |
+| Container images (pre-pulled) | LiteLLM API key(s) |
+| Firewall rules, systemd units | Default model |
+| TopoLVM storage (loopback VG) | |
+| Routing decisions, signals | |
+| Config templates | |
 
 ## File Layout
 
@@ -178,6 +196,7 @@ hybrid-inference-in-a-box/
 │           ├── deployment.yaml
 │           └── service.yaml
 ├── config/
+│   ├── router.yaml.example              ← sample config for configure-router.sh
 │   ├── llm-router-dashboard.json
 │   └── templates/
 │       ├── config-full.yaml.tmpl
@@ -187,6 +206,7 @@ hybrid-inference-in-a-box/
 │   ├── configure-router.sh            ← post-boot configuration
 │   ├── select-mode.sh                 ← switch full ↔ slim
 │   ├── start_vm_bootc.sh              ← create VM from bootc image
+│   ├── create-vg.sh                   ← loopback LVM VG for TopoLVM
 │   └── make-rshared.service
 └── README.md
 ```
@@ -195,6 +215,14 @@ hybrid-inference-in-a-box/
 
 **Pods stuck in CreateContainerConfigError:**
 Run `configure-router.sh` — the pods are waiting for ConfigMap/Secret.
+
+**TopoLVM pods in CrashLoopBackOff:**
+The `create-vg` service should create the `myvg1` volume group automatically.
+Verify it ran:
+```bash
+sudo systemctl status create-vg
+sudo vgs myvg1
+```
 
 **Pods stuck in ImagePullBackOff:**
 Pre-pulled images may not have been copied correctly. Check CRI-O storage:
