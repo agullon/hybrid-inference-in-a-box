@@ -164,21 +164,23 @@ fi
 # ─────────────────────────────────────────────────────────────────────────────
 # Create Secret from access_keys in the config
 # ─────────────────────────────────────────────────────────────────────────────
+# The deployment mounts the secret key "api-key" as the LITELLM_API_KEY env var.
+# We use the first access_key found in the config file.
 info "Creating Secret/litellm-credentials..."
-SECRET_ARGS=""
-INDEX=0
-while IFS= read -r key; do
-    key=$(echo "${key}" | xargs)
-    [[ -z "${key}" ]] && continue
-    SECRET_ARGS="${SECRET_ARGS} --from-literal=api-key-${INDEX}=${key}"
-    INDEX=$((INDEX + 1))
-done < <(grep 'access_key:' "${CONFIG_FILE}" | sed 's/.*access_key:[[:space:]]*//' | tr -d '"' | tr -d "'")
+API_KEY=$(python3 -c "
+import yaml, sys
+cfg = yaml.safe_load(open(sys.argv[1]))
+for m in cfg.get('providers', {}).get('models', []):
+    if 'access_key' in m:
+        print(m['access_key'])
+        break
+" "${CONFIG_FILE}")
 
-if [[ -n "${SECRET_ARGS}" ]]; then
+if [[ -n "${API_KEY}" ]]; then
     ${KUBECTL} -n "${NAMESPACE}" create secret generic litellm-credentials \
-        ${SECRET_ARGS} \
+        --from-literal=api-key="${API_KEY}" \
         --dry-run=client -o yaml | ${KUBECTL} apply -f -
-    ok "Secret/litellm-credentials created (${INDEX} key(s))"
+    ok "Secret/litellm-credentials created"
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
