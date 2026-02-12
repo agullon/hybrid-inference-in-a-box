@@ -37,8 +37,11 @@ bootc image (CentOS Stream 10)
 podman build -t hybrid-inference-bootc:latest -f Containerfile .
 ```
 
-CI builds run automatically on push to `main` and publish the image to
-`ghcr.io/<owner>/hybrid-inference-in-a-box:<tag>`. See
+CI builds run automatically on push to `main` and publish multi-arch
+(amd64 + arm64) manifest lists to
+`ghcr.io/<owner>/hybrid-inference-in-a-box:<tag>`. Each architecture is
+built in parallel on its native runner, then combined into a single manifest
+list. See
 [`.github/workflows/build-bootc.yaml`](.github/workflows/build-bootc.yaml).
 
 ## First Boot

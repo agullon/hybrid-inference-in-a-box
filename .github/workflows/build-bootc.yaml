@@ -56,7 +56,6 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     permissions:
-      contents: read
       packages: write
 
     steps:
@@ -92,5 +91,5 @@ jobs:
 
           for img in "${AMD64}" "${ARM64}"; do
             echo "Removing ${img}"
-            skopeo delete "docker://${img}"
+            skopeo delete --creds=${{ github.actor }}:${{ secrets.GITHUB_TOKEN }} "docker://${img}"
           done
