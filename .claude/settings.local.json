@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(gh run view:*)",
+      "WebFetch(domain:microshift-io.github.io)",
+      "Bash(gh release view:*)",
+      "Bash(skopeo inspect:*)",
+      "Bash(gh release list:*)"
+    ]
+  }
+}

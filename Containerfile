@@ -1,10 +1,5 @@
-FROM quay.io/centos-bootc/centos-bootc:stream10
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Install MicroShift
-# ─────────────────────────────────────────────────────────────────────────────
-RUN curl -s https://microshift-io.github.io/microshift/quickrpm.sh | bash && \
-    dnf clean all
+ARG MICROSHIFT_VERSION=4.21.0_g29f429c21_4.21.0_okd_scos.ec.15
+FROM ghcr.io/microshift-io/microshift:${MICROSHIFT_VERSION}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Firewall rules
@@ -46,6 +41,16 @@ COPY config/llm-router-dashboard.json /etc/semantic-router/
 COPY scripts/configure-router.sh /usr/local/bin/
 COPY scripts/select-mode.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/configure-router.sh /usr/local/bin/select-mode.sh
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Default user — passwordless SSH for quick access to the appliance
+# ─────────────────────────────────────────────────────────────────────────────
+RUN useradd -m -G wheel admin && \
+    passwd -d admin && \
+    echo "%wheel ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/wheel-nopasswd && \
+    chmod 440 /etc/sudoers.d/wheel-nopasswd && \
+    sed -i 's/^#\?PermitEmptyPasswords.*/PermitEmptyPasswords yes/' /etc/ssh/sshd_config && \
+    sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Pre-pull container images for air-gapped operation
