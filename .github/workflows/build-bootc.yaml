@@ -13,7 +13,15 @@ env:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
       packages: write
@@ -33,6 +41,28 @@ jobs:
         if: github.event_name != 'pull_request'
         run: echo "${{ secrets.GITHUB_TOKEN }}" | sudo podman login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin
 
+      - name: Build image
+        run: |
+          sudo podman build \
+            --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}-${{ matrix.arch }} \
+            --file Containerfile .
+
+      - name: Push arch-specific image
+        if: github.event_name != 'pull_request'
+        run: sudo podman push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}-${{ matrix.arch }}
+
+  manifest:
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | sudo podman login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin
+
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v5
@@ -41,28 +71,26 @@ jobs:
           tags: |
             type=sha
             type=ref,event=branch
-            type=ref,event=pr
 
-      - name: Build image
-        id: build
+      - name: Create and push manifest lists
         run: |
-          sudo podman build \
-            --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} \
-            --file Containerfile .
+          AMD64=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}-amd64
+          ARM64=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}-arm64
 
-      - name: Tag image
-        run: |
           echo '${{ steps.meta.outputs.tags }}' | while read -r tag; do
             [ -n "${tag}" ] || continue
-            sudo podman tag \
-              ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} \
-              "${tag}"
+            echo "Creating manifest for ${tag}"
+            sudo podman manifest create "${tag}" "${AMD64}" "${ARM64}"
+            sudo podman manifest push "${tag}" "docker://${tag}"
           done
 
-      - name: Push image
-        if: github.event_name != 'pull_request'
+      - name: Clean up arch-specific tags
+        continue-on-error: true
         run: |
-          echo '${{ steps.meta.outputs.tags }}' | while read -r tag; do
-            [ -n "${tag}" ] || continue
-            sudo podman push "${tag}"
+          AMD64=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}-amd64
+          ARM64=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}-arm64
+
+          for img in "${AMD64}" "${ARM64}"; do
+            echo "Removing ${img}"
+            skopeo delete "docker://${img}"
           done
