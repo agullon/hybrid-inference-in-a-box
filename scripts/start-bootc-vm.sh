@@ -1,12 +1,12 @@
 #!/bin/bash
-# start_vm_bootc.sh — Create a VM from a bootc container image hosted on GHCR
+# start-bootc-vm.sh — Create a VM from a bootc container image hosted on GHCR
 #
 # Converts the bootc container image to a qcow2 disk using bootc-image-builder,
 # then creates a libvirt VM from it. The bootc image already contains the admin
 # user with empty-password SSH access (see Containerfile).
 #
 # Usage:
-#   start_vm_bootc.sh [--delete] [--mode=full|slim] [--image=ghcr.io/owner/repo:tag] [vm-name]
+#   start-bootc-vm.sh [--delete] [--mode=full|slim] [--image=ghcr.io/owner/repo:tag] [vm-name]
 #
 # Modes:
 #   full (default) — vllm-sr all-in-one: API + Dashboard + Grafana + Prometheus
@@ -15,10 +15,10 @@
 #                     VM: 4GB RAM, 2 vCPUs, 40GB disk
 #
 # Examples:
-#   start_vm_bootc.sh                          # full mode, auto-detect image
-#   start_vm_bootc.sh --mode=slim my-vm
-#   start_vm_bootc.sh --image=ghcr.io/org/hybrid-inference-in-a-box:main my-vm
-#   start_vm_bootc.sh --delete my-vm
+#   start-bootc-vm.sh                          # full mode, auto-detect image
+#   start-bootc-vm.sh --mode=slim my-vm
+#   start-bootc-vm.sh --image=ghcr.io/org/hybrid-inference-in-a-box:main my-vm
+#   start-bootc-vm.sh --delete my-vm
 set -euo pipefail
 
 ACTION="create"
@@ -152,7 +152,7 @@ resources:
   - overlays/slim
 "
     sudo virt-customize -a "${DISK_PATH}" \
-        --write "/usr/lib/microshift/manifests/semantic-router/kustomization.yaml:${KUSTOMIZATION}"
+        --write "/usr/lib/microshift/manifests.d/semantic-router/kustomization.yaml:${KUSTOMIZATION}"
 fi
 
 echo ">>> Deployment mode: ${MODE}"

@@ -10,7 +10,7 @@
 
 set -euo pipefail
 
-MANIFEST_DIR="/usr/lib/microshift/manifests/semantic-router"
+MANIFEST_DIR="/usr/lib/microshift/manifests.d/semantic-router"
 
 MODE="${1:-}"
 
@@ -54,6 +54,5 @@ echo "Next steps:"
 echo "  1. Restart MicroShift to apply the new manifests:"
 echo "     sudo systemctl restart microshift"
 echo "  2. Wait for MicroShift to restart (~30s)"
-echo "  3. Run configure-router.sh to create the configuration:"
-echo "     sudo configure-router.sh --endpoint <url> --api-key <key> \\"
-echo "       --model-coding <name> --model-general <name>"
+echo "  3. Run configure-semantic-router.sh to apply the configuration:"
+echo "     sudo configure-semantic-router.sh router.yaml"

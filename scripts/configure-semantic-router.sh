@@ -1,5 +1,5 @@
 #!/bin/bash
-# configure-router.sh — Post-boot configuration for the Semantic Router
+# configure-semantic-router.sh — Post-boot configuration for the Semantic Router
 #
 # Creates the Kubernetes ConfigMap(s) and Secret needed by the semantic-router
 # deployment. The infrastructure manifests (Deployment, Service, etc.) are
@@ -7,7 +7,7 @@
 # CreateContainerConfigError until this script provides the configuration.
 #
 # Usage:
-#   configure-router.sh [path/to/router.yaml]
+#   configure-semantic-router.sh [path/to/router.yaml]
 #
 # The config file defines the models, endpoints, and API keys — everything
 # under `providers:` in the router config. The rest (signals, decisions,
@@ -23,7 +23,7 @@ set -euo pipefail
 NAMESPACE="semantic-router"
 KUBECTL="sudo kubectl"
 TEMPLATE_DIR="/etc/semantic-router/templates"
-MANIFEST_DIR="/usr/lib/microshift/manifests/semantic-router"
+MANIFEST_DIR="/usr/lib/microshift/manifests.d/semantic-router"
 DASHBOARD_JSON="/etc/semantic-router/llm-router-dashboard.json"
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -66,8 +66,14 @@ info "Loading config from ${CONFIG_FILE}..."
 # ─────────────────────────────────────────────────────────────────────────────
 # Extract model names from the config
 # ─────────────────────────────────────────────────────────────────────────────
-# Model names are the `- name:` entries under `providers.models`
-mapfile -t MODEL_NAMES < <(grep -E '^\s+- name:' "${CONFIG_FILE}" | sed 's/.*- name:[[:space:]]*//' | tr -d '"' | tr -d "'")
+# Model names are the top-level `- name:` entries under `providers.models`,
+# not the nested endpoint names. We use python to parse the YAML properly.
+mapfile -t MODEL_NAMES < <(python3 -c "
+import yaml, sys
+cfg = yaml.safe_load(open(sys.argv[1]))
+for m in cfg.get('providers', {}).get('models', []):
+    print(m['name'])
+" "${CONFIG_FILE}")
 
 if [[ ${#MODEL_NAMES[@]} -lt 1 ]]; then
     err "No models found in ${CONFIG_FILE}. Expected providers.models entries."
@@ -199,7 +205,17 @@ fi
 # ─────────────────────────────────────────────────────────────────────────────
 # Print status
 # ─────────────────────────────────────────────────────────────────────────────
-DEFAULT_MODEL=$(grep 'default_model:' "${CONFIG_FILE}" | head -1 | sed 's/.*default_model:[[:space:]]*//' | tr -d '"' | tr -d "'")
+DEFAULT_MODEL=$(python3 -c "
+import yaml, sys
+cfg = yaml.safe_load(open(sys.argv[1]))
+print(cfg.get('providers', {}).get('default_model', ''))
+" "${CONFIG_FILE}")
+
+# Detect the node IP address for endpoint URLs
+NODE_IP=$(${KUBECTL} get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null) || true
+if [[ -z "${NODE_IP}" ]]; then
+    NODE_IP=$(hostname -I 2>/dev/null | awk '{print $1}') || NODE_IP="<IP>"
+fi
 
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -217,12 +233,12 @@ done
 echo ""
 if [[ "${MODE}" == "full" ]]; then
     echo " Endpoints (once running):"
-    echo "   API:       http://<IP>:30801/v1/chat/completions"
-    echo "   Dashboard: http://<IP>:30700"
-    echo "   Grafana:   http://<IP>:30300"
+    echo "   API:       http://${NODE_IP}:30801/v1/chat/completions"
+    echo "   Dashboard: http://${NODE_IP}:30700"
+    echo "   Grafana:   http://${NODE_IP}:30300"
 else
     echo " Endpoint (once running):"
-    echo "   API:       http://<IP>:30801/v1/chat/completions"
+    echo "   API:       http://${NODE_IP}:30801/v1/chat/completions"
 fi
 echo ""
 echo " Monitor:"

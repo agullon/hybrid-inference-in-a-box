@@ -9,20 +9,20 @@ your LLM backend, and start routing.
 ```
 bootc image (CentOS Stream 10)
 ├── MicroShift (RPM, auto-starts on boot)
-├── /usr/lib/microshift/manifests/semantic-router/
+├── /usr/lib/microshift/manifests.d/semantic-router/
 │   ├── kustomization.yaml          ← selects full or slim overlay
 │   ├── base/                       ← namespace
 │   ├── overlays/full/              ← vllm-sr + grafana + prometheus
 │   └── overlays/slim/              ← extproc + envoy sidecar
 ├── Pre-pulled container images
-├── /usr/local/bin/configure-router.sh
+├── /usr/local/bin/configure-semantic-router.sh
 ├── /usr/local/bin/select-mode.sh
 └── /etc/semantic-router/templates/ ← config templates with placeholders
 ```
 
 **Two-stage boot flow:**
 1. MicroShift starts → applies infrastructure manifests → pods wait for config
-2. User runs `configure-router.sh` → creates ConfigMap + Secret → pods start
+2. User runs `configure-semantic-router.sh` → creates ConfigMap + Secret → pods start
 
 ## Deployment Modes
 
@@ -57,16 +57,16 @@ container image to a qcow2 disk and creates a VM:
 
 ```bash
 # Full mode (8GB RAM, 4 vCPUs, 100GB disk)
-./scripts/start_vm_bootc.sh
+./scripts/start-bootc-vm.sh
 
 # Slim mode (4GB RAM, 2 vCPUs, 40GB disk)
-./scripts/start_vm_bootc.sh --mode=slim
+./scripts/start-bootc-vm.sh --mode=slim
 
 # Specify a custom image and VM name
-./scripts/start_vm_bootc.sh --image=ghcr.io/org/hybrid-inference-in-a-box:main my-vm
+./scripts/start-bootc-vm.sh --image=ghcr.io/org/hybrid-inference-in-a-box:main my-vm
 
 # Delete a VM
-./scripts/start_vm_bootc.sh --delete my-vm
+./scripts/start-bootc-vm.sh --delete my-vm
 ```
 
 The script auto-detects the image from the git remote or the GHCR API, uses
@@ -105,7 +105,7 @@ router config (signals, routing decisions, listeners) comes from the
 baked-in template.
 
 ```bash
-sudo configure-router.sh router.yaml
+sudo configure-semantic-router.sh router.yaml
 ```
 
 ### 3. Wait for pods to start
@@ -147,17 +147,17 @@ curl -s http://<IP>:30801/v1/chat/completions \
 sudo select-mode.sh slim
 sudo systemctl restart microshift
 # Wait ~30s for MicroShift to restart
-sudo configure-router.sh router.yaml
+sudo configure-semantic-router.sh router.yaml
 ```
 
 ## Reconfiguring
 
 Edit `router.yaml` (models, endpoints, API keys) and re-run
-`configure-router.sh`. It updates the ConfigMap/Secret and restarts the
+`configure-semantic-router.sh`. It updates the ConfigMap/Secret and restarts the
 deployment.
 
 ```bash
-sudo configure-router.sh router.yaml
+sudo configure-semantic-router.sh router.yaml
 ```
 
 ## What's Baked vs Runtime
@@ -196,16 +196,16 @@ hybrid-inference-in-a-box/
 │           ├── deployment.yaml
 │           └── service.yaml
 ├── config/
-│   ├── router.yaml.example              ← sample config for configure-router.sh
+│   ├── router.yaml.example              ← sample config for configure-semantic-router.sh
 │   ├── llm-router-dashboard.json
 │   └── templates/
 │       ├── config-full.yaml.tmpl
 │       ├── config-slim.yaml.tmpl
 │       └── envoy-slim.yaml.tmpl
 ├── scripts/
-│   ├── configure-router.sh            ← post-boot configuration
+│   ├── configure-semantic-router.sh            ← post-boot configuration
 │   ├── select-mode.sh                 ← switch full ↔ slim
-│   ├── start_vm_bootc.sh              ← create VM from bootc image
+│   ├── start-bootc-vm.sh              ← create VM from bootc image
 │   ├── create-vg.sh                   ← loopback LVM VG for TopoLVM
 │   └── make-rshared.service
 └── README.md
@@ -214,7 +214,7 @@ hybrid-inference-in-a-box/
 ## Troubleshooting
 
 **Pods stuck in CreateContainerConfigError:**
-Run `configure-router.sh` — the pods are waiting for ConfigMap/Secret.
+Run `configure-semantic-router.sh` — the pods are waiting for ConfigMap/Secret.
 
 **TopoLVM pods in CrashLoopBackOff:**
 The `create-vg` service should create the `myvg1` volume group automatically.

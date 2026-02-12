@@ -3,7 +3,7 @@
 # Copy this file, edit the models/endpoints/keys, and apply:
 #
 #   cp router.yaml.example router.yaml
-#   sudo configure-router.sh router.yaml
+#   sudo configure-semantic-router.sh router.yaml
 #
 # To add more models, add entries to the models list.
 

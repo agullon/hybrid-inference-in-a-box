@@ -38,20 +38,20 @@ RUN systemctl enable firewalld microshift make-rshared create-vg
 # ─────────────────────────────────────────────────────────────────────────────
 # Kustomize manifests — infrastructure only, no configuration baked in
 # ─────────────────────────────────────────────────────────────────────────────
-# MicroShift auto-applies manifests from /usr/lib/microshift/manifests/ on boot.
-# These define the Deployments, Services, etc. but reference ConfigMaps and
-# Secrets that don't exist yet — pods will wait until configure-router.sh
-# creates them post-boot.
-COPY manifests/semantic-router/ /usr/lib/microshift/manifests/semantic-router/
+# MicroShift auto-applies kustomizations from /usr/lib/microshift/manifests.d/*/
+# on boot. These define the Deployments, Services, etc. but reference ConfigMaps
+# and Secrets that don't exist yet — pods will wait until
+# configure-semantic-router.sh creates them post-boot.
+COPY manifests/semantic-router/ /usr/lib/microshift/manifests.d/semantic-router/
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Configuration templates + helper scripts
 # ─────────────────────────────────────────────────────────────────────────────
 COPY config/templates/ /etc/semantic-router/templates/
 COPY config/llm-router-dashboard.json /etc/semantic-router/
-COPY scripts/configure-router.sh /usr/local/bin/
+COPY scripts/configure-semantic-router.sh /usr/local/bin/
 COPY scripts/select-mode.sh /usr/local/bin/
-RUN chmod +x /usr/local/bin/configure-router.sh /usr/local/bin/select-mode.sh
+RUN chmod +x /usr/local/bin/configure-semantic-router.sh /usr/local/bin/select-mode.sh
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Default user — passwordless SSH for quick access to the appliance
