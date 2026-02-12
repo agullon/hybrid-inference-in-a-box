@@ -3,7 +3,8 @@ FROM quay.io/centos-bootc/centos-bootc:stream10
 # ─────────────────────────────────────────────────────────────────────────────
 # Install MicroShift
 # ─────────────────────────────────────────────────────────────────────────────
-RUN dnf install -y microshift && dnf clean all
+RUN curl -s https://microshift-io.github.io/microshift/quickrpm.sh | bash && \
+    dnf clean all
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Firewall rules
