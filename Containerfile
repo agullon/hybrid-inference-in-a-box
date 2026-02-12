@@ -12,10 +12,8 @@ RUN firewall-offline-cmd --add-service=ssh && \
     firewall-offline-cmd --add-port=30000-32767/tcp && \
     firewall-offline-cmd --add-port=30000-32767/udp && \
     # Pod and service network CIDRs (trusted for internal cluster traffic)
-    firewall-offline-cmd --permanent --zone=trusted \
-        --add-source=10.42.0.0/16 && \
-    firewall-offline-cmd --permanent --zone=trusted \
-        --add-source=169.254.169.1
+    firewall-offline-cmd --zone=trusted --add-source=10.42.0.0/16 && \
+    firewall-offline-cmd --zone=trusted --add-source=169.254.169.1
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Systemd services
