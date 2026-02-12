@@ -103,10 +103,10 @@ fi
 # Handle --delete: destroy and undefine the VM, then exit
 # ─────────────────────────────────────────────────────────────────────────────
 if [ "${ACTION}" = "delete" ]; then
-    echo ">>> Destroying VM '${VM_NAME}'..."
+    echo "STEP-01 Destroying VM '${VM_NAME}'..."
     sudo virsh destroy "${VM_NAME}" 2>/dev/null || true
     sudo virsh undefine "${VM_NAME}" --remove-all-storage --nvram 2>/dev/null || true
-    echo ">>> VM '${VM_NAME}' has been removed."
+    echo "STEP-02 VM '${VM_NAME}' has been removed."
     exit 0
 fi
 
@@ -116,10 +116,10 @@ fi
 OUTPUT_DIR="${VM_DIR}/${VM_NAME}-output"
 mkdir -p "${OUTPUT_DIR}"
 
-echo ">>> Pulling ${IMAGE}..."
+echo "STEP-01 Pulling ${IMAGE}..."
 sudo podman pull "${IMAGE}"
 
-echo ">>> Building qcow2 from ${IMAGE}..."
+echo "STEP-02 Building qcow2 from ${IMAGE}..."
 sudo podman run \
     --rm \
     --privileged \
@@ -136,7 +136,7 @@ sudo mv "${OUTPUT_DIR}/qcow2/disk.qcow2" "${DISK_PATH}"
 sudo rm -rf "${OUTPUT_DIR}"
 
 # Resize the disk — bootc images auto-grow the filesystem on first boot
-echo ">>> Resizing disk to ${DISK_SIZE}G..."
+echo "STEP-03 Resizing disk to ${DISK_SIZE}G..."
 sudo qemu-img resize "${DISK_PATH}" "${DISK_SIZE}G"
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -145,7 +145,7 @@ sudo qemu-img resize "${DISK_PATH}" "${DISK_SIZE}G"
 # The image defaults to "full". If slim was requested, rewrite the kustomize
 # entry point so MicroShift picks the correct overlay on its first start.
 if [[ "${MODE}" == "slim" ]]; then
-    echo ">>> Setting deployment mode to slim..."
+    echo "STEP-04 Setting deployment mode to slim..."
     KUSTOMIZATION="apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
@@ -155,20 +155,20 @@ resources:
         --write "/usr/lib/microshift/manifests.d/semantic-router/kustomization.yaml:${KUSTOMIZATION}"
 fi
 
-echo ">>> Deployment mode: ${MODE}"
+echo "STEP-04 Deployment mode: ${MODE}"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Create VM from the qcow2
 # ─────────────────────────────────────────────────────────────────────────────
 if sudo virsh dominfo "${VM_NAME}" &>/dev/null; then
-    echo ">>> VM '${VM_NAME}' already exists. Skipping install."
+    echo "STEP-05 VM '${VM_NAME}' already exists. Skipping install."
     sudo virsh start "${VM_NAME}" 2>/dev/null || true
 else
-    echo ">>> Removing stale VM definition if present..."
+    echo "STEP-05 Removing stale VM definition if present..."
     sudo virsh destroy "${VM_NAME}" 2>/dev/null || true
     sudo virsh undefine "${VM_NAME}" --remove-all-storage --nvram 2>/dev/null || true
 
-    echo ">>> Creating VM from bootc image..."
+    echo "STEP-05 Creating VM from bootc image..."
     sudo virt-install \
         --name "${VM_NAME}" \
         --ram "${RAM}" \
@@ -184,7 +184,7 @@ fi
 # ─────────────────────────────────────────────────────────────────────────────
 # Wait for IP
 # ─────────────────────────────────────────────────────────────────────────────
-echo ">>> Waiting for VM to get an IP address..."
+echo "STEP-06 Waiting for VM to get an IP address..."
 IP=""
 elapsed=0
 while [ -z "${IP}" ] && [ "${elapsed}" -lt "${SSH_TIMEOUT}" ]; do
@@ -200,8 +200,8 @@ if [ -z "${IP}" ]; then
 fi
 
 echo ""
-echo ">>> VM is ready!  (mode: ${MODE})"
-echo ">>> SSH command:"
+echo "STEP-07 VM is ready!  (mode: ${MODE})"
+echo "STEP-07 SSH command:"
 echo ""
 echo "    ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ${VM_USER}@${IP}"
 echo ""
