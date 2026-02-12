@@ -20,7 +20,20 @@ RUN firewall-offline-cmd --add-service=ssh && \
 # ─────────────────────────────────────────────────────────────────────────────
 # OVN-Kubernetes requires rshared mount propagation on the root filesystem
 COPY scripts/make-rshared.service /etc/systemd/system/
-RUN systemctl enable firewalld microshift make-rshared
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TopoLVM storage — create a loopback-backed LVM volume group on first boot
+# ─────────────────────────────────────────────────────────────────────────────
+# MicroShift's TopoLVM CSI driver expects a volume group named "myvg1".
+# Since bootc images don't have a dedicated LVM partition, we create a
+# sparse loopback file and attach it as a PV on every boot (before MicroShift
+# starts). The file is only allocated on first boot; subsequent boots reuse it.
+COPY scripts/create-vg.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/create-vg.sh && \
+    printf '[Unit]\nDescription=Create loopback LVM VG for TopoLVM\nBefore=microshift.service\nAfter=local-fs.target\n\n[Service]\nType=oneshot\nExecStart=/usr/local/bin/create-vg.sh\nRemainAfterExit=yes\n\n[Install]\nWantedBy=multi-user.target\n' \
+      > /etc/systemd/system/create-vg.service
+
+RUN systemctl enable firewalld microshift make-rshared create-vg
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Kustomize manifests — infrastructure only, no configuration baked in
