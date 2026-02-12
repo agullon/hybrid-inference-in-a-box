@@ -62,18 +62,18 @@ RUN useradd -m -G wheel admin && \
 #   - podman pull + copy the image store layer
 #   - MicroShift's mirror-images.sh helper
 #   - directory-based mirroring with CRI-O additional image stores
-RUN skopeo copy --all \
+RUN skopeo copy \
     docker://ghcr.io/vllm-project/semantic-router/vllm-sr:latest \
     containers-storage:ghcr.io/vllm-project/semantic-router/vllm-sr:latest && \
-    skopeo copy --all \
+    skopeo copy \
     docker://ghcr.io/vllm-project/semantic-router/extproc:latest \
     containers-storage:ghcr.io/vllm-project/semantic-router/extproc:latest && \
-    skopeo copy --all \
+    skopeo copy \
     docker://docker.io/envoyproxy/envoy:v1.31.7 \
     containers-storage:docker.io/envoyproxy/envoy:v1.31.7 && \
-    skopeo copy --all \
+    skopeo copy \
     docker://docker.io/prom/prometheus:v2.53.3 \
     containers-storage:docker.io/prom/prometheus:v2.53.3 && \
-    skopeo copy --all \
+    skopeo copy \
     docker://docker.io/grafana/grafana:11.4.0 \
     containers-storage:docker.io/grafana/grafana:11.4.0
