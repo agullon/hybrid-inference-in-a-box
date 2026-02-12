@@ -132,12 +132,12 @@ sudo podman run \
     "${IMAGE}"
 
 # Move qcow2 to final location and clean up build artifacts
-mv "${OUTPUT_DIR}/qcow2/disk.qcow2" "${DISK_PATH}"
-rm -rf "${OUTPUT_DIR}"
+sudo mv "${OUTPUT_DIR}/qcow2/disk.qcow2" "${DISK_PATH}"
+sudo rm -rf "${OUTPUT_DIR}"
 
 # Resize the disk — bootc images auto-grow the filesystem on first boot
 echo ">>> Resizing disk to ${DISK_SIZE}G..."
-qemu-img resize "${DISK_PATH}" "${DISK_SIZE}G"
+sudo qemu-img resize "${DISK_PATH}" "${DISK_SIZE}G"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Set deployment mode in the disk image before first boot

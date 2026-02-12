@@ -1,20 +1,5 @@
-vllm_endpoints:
-  - name: "litellm-gateway"
-    address: "__LITELLM_ENDPOINT__"
-    port: 443
-    weight: 1
-
-model_config:
-  "__MODEL_CODING__":
-    preferred_endpoints: ["litellm-gateway"]
-    access_key: "__LITELLM_API_KEY__"
-    api_format: "openai"
-  "__MODEL_GENERAL__":
-    preferred_endpoints: ["litellm-gateway"]
-    access_key: "__LITELLM_API_KEY__"
-    api_format: "openai"
-
-default_model: "__MODEL_GENERAL__"
+# ── Backend Providers (injected from router.yaml) ─────────────────────
+__PROVIDERS__
 
 # Domain classifier — only model downloaded (~500MB BERT-base + LoRA)
 classifier:
@@ -61,7 +46,7 @@ decisions:
         - type: "domain"
           name: "engineering"
     modelRefs:
-      - model: "__MODEL_CODING__"
+      - model: "__MODEL_0__"
         use_reasoning: false
 
   - name: "general"
@@ -72,7 +57,7 @@ decisions:
         - type: "domain"
           name: "other"
     modelRefs:
-      - model: "__MODEL_GENERAL__"
+      - model: "__MODEL_1__"
         use_reasoning: false
 
 # Explicitly disabled — each saves ~2.5GB of model downloads

@@ -7,10 +7,11 @@
 # CreateContainerConfigError until this script provides the configuration.
 #
 # Usage:
-#   configure-router.sh --endpoint <url> --api-key <key> \
-#                        --model-coding <name> --model-general <name>
+#   configure-router.sh [path/to/router.yaml]
 #
-#   Or run without args for interactive prompts.
+# The config file defines the models, endpoints, and API keys — everything
+# under `providers:` in the router config. The rest (signals, decisions,
+# listeners) comes from the baked-in template.
 #
 # Can be re-run at any time to update configuration.
 
@@ -34,65 +35,43 @@ warn()  { echo -e "\033[1;33m[WARN]\033[0m  $*"; }
 err()   { echo -e "\033[1;31m[ERROR]\033[0m $*"; exit 1; }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Parse arguments
+# Load config file
 # ─────────────────────────────────────────────────────────────────────────────
-LITELLM_ENDPOINT=""
-LITELLM_API_KEY=""
-MODEL_CODING=""
-MODEL_GENERAL=""
+CONFIG_FILE="${1:-./router.yaml}"
 
-while [[ $# -gt 0 ]]; do
-    case "$1" in
-        --endpoint)     LITELLM_ENDPOINT="$2";  shift 2 ;;
-        --api-key)      LITELLM_API_KEY="$2";   shift 2 ;;
-        --model-coding) MODEL_CODING="$2";      shift 2 ;;
-        --model-general) MODEL_GENERAL="$2";    shift 2 ;;
-        --help|-h)
-            echo "Usage: $0 --endpoint <url> --api-key <key> --model-coding <name> --model-general <name>"
-            echo ""
-            echo "Options:"
-            echo "  --endpoint       LiteLLM gateway hostname (e.g., litellm.example.com)"
-            echo "  --api-key        LiteLLM API key (e.g., sk-...)"
-            echo "  --model-coding   Model name for coding/engineering queries"
-            echo "  --model-general  Model name for general queries (also used as default)"
-            echo ""
-            echo "If options are not provided, interactive prompts will be shown."
-            exit 0
-            ;;
-        *)
-            err "Unknown argument: $1. Use --help for usage."
-            ;;
-    esac
-done
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Interactive prompts for missing values
-# ─────────────────────────────────────────────────────────────────────────────
-if [[ -z "${LITELLM_ENDPOINT}" ]]; then
-    read -rp "LiteLLM endpoint hostname (e.g., litellm.example.com): " LITELLM_ENDPOINT
-fi
-if [[ -z "${LITELLM_API_KEY}" ]]; then
-    read -rsp "LiteLLM API key: " LITELLM_API_KEY
+if [[ "${CONFIG_FILE}" == "--help" || "${CONFIG_FILE}" == "-h" ]]; then
+    echo "Usage: $0 [path/to/router.yaml]"
     echo ""
-fi
-if [[ -z "${MODEL_CODING}" ]]; then
-    read -rp "Model for coding queries (e.g., Mistral-Small-24B-W8A8): " MODEL_CODING
-fi
-if [[ -z "${MODEL_GENERAL}" ]]; then
-    read -rp "Model for general queries (e.g., Granite-3.3-8B-Instruct): " MODEL_GENERAL
+    echo "The config file defines the models and endpoints (providers section)."
+    echo "Copy the example and edit it:"
+    echo ""
+    echo "  cp /etc/semantic-router/templates/router.yaml.example router.yaml"
+    echo "  vi router.yaml"
+    echo "  sudo $0 router.yaml"
+    exit 0
 fi
 
-# Validate required values
-[[ -z "${LITELLM_ENDPOINT}" ]] && err "LiteLLM endpoint is required"
-[[ -z "${LITELLM_API_KEY}" ]]  && err "LiteLLM API key is required"
-[[ -z "${MODEL_CODING}" ]]     && err "Coding model name is required"
-[[ -z "${MODEL_GENERAL}" ]]    && err "General model name is required"
+if [[ ! -f "${CONFIG_FILE}" ]]; then
+    err "Config file not found: ${CONFIG_FILE}
 
-# Strip protocol prefix if provided (we only need the hostname)
-LITELLM_ENDPOINT="${LITELLM_ENDPOINT#https://}"
-LITELLM_ENDPOINT="${LITELLM_ENDPOINT#http://}"
-# Strip trailing slash
-LITELLM_ENDPOINT="${LITELLM_ENDPOINT%/}"
+Copy the example config and edit it:
+
+  cp /etc/semantic-router/templates/router.yaml.example router.yaml
+  vi router.yaml
+  sudo $0 router.yaml"
+fi
+
+info "Loading config from ${CONFIG_FILE}..."
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Extract model names from the config
+# ─────────────────────────────────────────────────────────────────────────────
+# Model names are the `- name:` entries under `providers.models`
+mapfile -t MODEL_NAMES < <(grep -E '^\s+- name:' "${CONFIG_FILE}" | sed 's/.*- name:[[:space:]]*//' | tr -d '"' | tr -d "'")
+
+if [[ ${#MODEL_NAMES[@]} -lt 1 ]]; then
+    err "No models found in ${CONFIG_FILE}. Expected providers.models entries."
+fi
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Detect current mode
@@ -106,27 +85,8 @@ fi
 info "Detected mode: ${MODE}"
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Ensure namespace exists
+# Render the final config: inject providers into template
 # ─────────────────────────────────────────────────────────────────────────────
-if ! ${KUBECTL} get namespace "${NAMESPACE}" &>/dev/null; then
-    info "Creating namespace ${NAMESPACE}..."
-    ${KUBECTL} create namespace "${NAMESPACE}"
-fi
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Render templates and create ConfigMaps
-# ─────────────────────────────────────────────────────────────────────────────
-render_template() {
-    local template="$1"
-    sed \
-        -e "s|__LITELLM_ENDPOINT__|${LITELLM_ENDPOINT}|g" \
-        -e "s|__LITELLM_API_KEY__|${LITELLM_API_KEY}|g" \
-        -e "s|__MODEL_CODING__|${MODEL_CODING}|g" \
-        -e "s|__MODEL_GENERAL__|${MODEL_GENERAL}|g" \
-        "${template}"
-}
-
-# Router config
 if [[ "${MODE}" == "full" ]]; then
     TEMPLATE="${TEMPLATE_DIR}/config-full.yaml.tmpl"
 else
@@ -137,23 +97,57 @@ if [[ ! -f "${TEMPLATE}" ]]; then
     err "Template not found: ${TEMPLATE}"
 fi
 
-info "Rendering router config from ${TEMPLATE}..."
-RENDERED_CONFIG=$(render_template "${TEMPLATE}")
+info "Rendering config from ${TEMPLATE}..."
 
+# Read the config file (providers section) and inject into the template
+PROVIDERS_CONTENT=$(cat "${CONFIG_FILE}")
+RENDERED_CONFIG=$(python3 -c "
+import sys
+template = open(sys.argv[1]).read()
+providers = open(sys.argv[2]).read()
+print(template.replace('__PROVIDERS__', providers))
+" "${TEMPLATE}" "${CONFIG_FILE}")
+
+# Substitute __MODEL_N__ placeholders with actual model names from the config
+for i in "${!MODEL_NAMES[@]}"; do
+    RENDERED_CONFIG="${RENDERED_CONFIG//__MODEL_${i}__/${MODEL_NAMES[$i]}}"
+done
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Ensure namespace exists
+# ─────────────────────────────────────────────────────────────────────────────
+if ! ${KUBECTL} get namespace "${NAMESPACE}" &>/dev/null; then
+    info "Creating namespace ${NAMESPACE}..."
+    ${KUBECTL} create namespace "${NAMESPACE}"
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Create router ConfigMap
+# ─────────────────────────────────────────────────────────────────────────────
+info "Applying router config..."
 ${KUBECTL} -n "${NAMESPACE}" create configmap router-config \
     --from-literal=config.yaml="${RENDERED_CONFIG}" \
     --dry-run=client -o yaml | ${KUBECTL} apply -f -
 ok "ConfigMap/router-config created"
 
+# ─────────────────────────────────────────────────────────────────────────────
 # Envoy config (slim mode only)
+# ─────────────────────────────────────────────────────────────────────────────
 if [[ "${MODE}" == "slim" ]]; then
-    ENVOY_TEMPLATE="${TEMPLATE_DIR}/envoy-slim.yaml.tmpl"
-    if [[ ! -f "${ENVOY_TEMPLATE}" ]]; then
-        err "Envoy template not found: ${ENVOY_TEMPLATE}"
+    ENVOY_TMPL="${TEMPLATE_DIR}/envoy-slim.yaml.tmpl"
+    if [[ ! -f "${ENVOY_TMPL}" ]]; then
+        err "Envoy template not found: ${ENVOY_TMPL}"
     fi
 
-    info "Rendering Envoy config from ${ENVOY_TEMPLATE}..."
-    RENDERED_ENVOY=$(render_template "${ENVOY_TEMPLATE}")
+    # Extract the first endpoint hostname for Envoy upstream
+    ENVOY_ENDPOINT=$(grep -m1 'endpoint:' "${CONFIG_FILE}" | sed 's/.*endpoint:[[:space:]]*//' | tr -d '"' | tr -d "'" | sed 's/:[0-9]*$//')
+
+    if [[ -z "${ENVOY_ENDPOINT}" ]]; then
+        err "Could not extract endpoint from config for Envoy"
+    fi
+
+    info "Rendering Envoy config (upstream: ${ENVOY_ENDPOINT})..."
+    RENDERED_ENVOY=$(sed "s|__ENDPOINT_GENERAL__|${ENVOY_ENDPOINT}|g" "${ENVOY_TMPL}")
 
     ${KUBECTL} -n "${NAMESPACE}" create configmap envoy-config \
         --from-literal=envoy.yaml="${RENDERED_ENVOY}" \
@@ -162,13 +156,24 @@ if [[ "${MODE}" == "slim" ]]; then
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Create Secret
+# Create Secret from access_keys in the config
 # ─────────────────────────────────────────────────────────────────────────────
 info "Creating Secret/litellm-credentials..."
-${KUBECTL} -n "${NAMESPACE}" create secret generic litellm-credentials \
-    --from-literal=api-key="${LITELLM_API_KEY}" \
-    --dry-run=client -o yaml | ${KUBECTL} apply -f -
-ok "Secret/litellm-credentials created"
+SECRET_ARGS=""
+INDEX=0
+while IFS= read -r key; do
+    key=$(echo "${key}" | xargs)
+    [[ -z "${key}" ]] && continue
+    SECRET_ARGS="${SECRET_ARGS} --from-literal=api-key-${INDEX}=${key}"
+    INDEX=$((INDEX + 1))
+done < <(grep 'access_key:' "${CONFIG_FILE}" | sed 's/.*access_key:[[:space:]]*//' | tr -d '"' | tr -d "'")
+
+if [[ -n "${SECRET_ARGS}" ]]; then
+    ${KUBECTL} -n "${NAMESPACE}" create secret generic litellm-credentials \
+        ${SECRET_ARGS} \
+        --dry-run=client -o yaml | ${KUBECTL} apply -f -
+    ok "Secret/litellm-credentials created (${INDEX} key(s))"
+fi
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Create Grafana dashboard ConfigMap (full mode only)
@@ -194,29 +199,28 @@ fi
 # ─────────────────────────────────────────────────────────────────────────────
 # Print status
 # ─────────────────────────────────────────────────────────────────────────────
+DEFAULT_MODEL=$(grep 'default_model:' "${CONFIG_FILE}" | head -1 | sed 's/.*default_model:[[:space:]]*//' | tr -d '"' | tr -d "'")
+
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo " Configuration Applied (${MODE} mode)"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
-echo " Endpoint:       ${LITELLM_ENDPOINT}"
-echo " Coding model:   ${MODEL_CODING}"
-echo " General model:  ${MODEL_GENERAL}"
-echo ""
-echo " Routing rules:"
-echo "   CS/engineering queries → ${MODEL_CODING}"
-echo "   all other queries      → ${MODEL_GENERAL}"
+echo " Models:"
+for name in "${MODEL_NAMES[@]}"; do
+    if [[ "${name}" == "${DEFAULT_MODEL}" ]]; then
+        echo "   • ${name}  (default)"
+    else
+        echo "   • ${name}"
+    fi
+done
 echo ""
 if [[ "${MODE}" == "full" ]]; then
-    echo " Waiting for pods to start (model downloads may take a while)..."
-    echo ""
     echo " Endpoints (once running):"
     echo "   API:       http://<IP>:30801/v1/chat/completions"
     echo "   Dashboard: http://<IP>:30700"
     echo "   Grafana:   http://<IP>:30300"
 else
-    echo " Waiting for pods to start (~500MB model download on first run)..."
-    echo ""
     echo " Endpoint (once running):"
     echo "   API:       http://<IP>:30801/v1/chat/completions"
 fi
@@ -225,5 +229,5 @@ echo " Monitor:"
 echo "   sudo kubectl -n ${NAMESPACE} get pods -w"
 echo "   sudo kubectl -n ${NAMESPACE} logs deploy/semantic-router --tail=50 -f"
 echo ""
-echo " To reconfigure, re-run this script with new values."
+echo " To reconfigure, edit the config file and re-run this script."
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

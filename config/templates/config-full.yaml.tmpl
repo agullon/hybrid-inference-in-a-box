@@ -8,8 +8,6 @@ listeners:
     timeout: "300s"
 
 # ── Domain Signals ────────────────────────────────────────────────────
-# Domain names must match the classifier's category_mapping.json output
-# (space-separated, not underscores).
 signals:
   domains:
     - name: "computer science"
@@ -68,7 +66,7 @@ decisions:
         - type: "domain"
           name: "engineering"
     modelRefs:
-      - model: "__MODEL_CODING__"
+      - model: "__MODEL_0__"
         use_reasoning: false
     plugins:
       - type: "pii"
@@ -114,7 +112,7 @@ decisions:
         - type: "domain"
           name: "philosophy"
     modelRefs:
-      - model: "__MODEL_GENERAL__"
+      - model: "__MODEL_1__"
         use_reasoning: false
     plugins:
       - type: "pii"
@@ -129,26 +127,8 @@ decisions:
           capture_response_body: true
           max_body_bytes: 4096
 
-# ── Backend Providers ─────────────────────────────────────────────────
-providers:
-  models:
-    - name: "__MODEL_CODING__"
-      endpoints:
-        - name: "litellm"
-          weight: 1
-          endpoint: "__LITELLM_ENDPOINT__:443"
-          protocol: "https"
-      access_key: "__LITELLM_API_KEY__"
-
-    - name: "__MODEL_GENERAL__"
-      endpoints:
-        - name: "litellm"
-          weight: 1
-          endpoint: "__LITELLM_ENDPOINT__:443"
-          protocol: "https"
-      access_key: "__LITELLM_API_KEY__"
-
-  default_model: "__MODEL_GENERAL__"
+# ── Backend Providers (injected from router.yaml) ─────────────────────
+__PROVIDERS__
 
 # ── Embedding Models ──────────────────────────────────────────────────
 embedding_models:
