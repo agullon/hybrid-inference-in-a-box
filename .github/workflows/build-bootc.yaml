@@ -52,7 +52,8 @@ jobs:
 
       - name: Tag image
         run: |
-          for tag in ${{ steps.meta.outputs.tags }}; do
+          echo '${{ steps.meta.outputs.tags }}' | while read -r tag; do
+            [ -n "${tag}" ] || continue
             sudo podman tag \
               ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} \
               "${tag}"
@@ -61,6 +62,7 @@ jobs:
       - name: Push image
         if: github.event_name != 'pull_request'
         run: |
-          for tag in ${{ steps.meta.outputs.tags }}; do
+          echo '${{ steps.meta.outputs.tags }}' | while read -r tag; do
+            [ -n "${tag}" ] || continue
             sudo podman push "${tag}"
           done
