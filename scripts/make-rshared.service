@@ -1,0 +1,12 @@
+[Unit]
+Description=Make root mount shared (required by OVN-Kubernetes)
+DefaultDependencies=no
+Before=microshift.service crio.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/mount --make-rshared /
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

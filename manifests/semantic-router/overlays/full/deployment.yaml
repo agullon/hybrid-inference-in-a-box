@@ -1,0 +1,122 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: semantic-router
+  namespace: semantic-router
+  labels:
+    app.kubernetes.io/name: semantic-router
+    app.kubernetes.io/component: router
+    app.kubernetes.io/part-of: hybrid-inference
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: semantic-router
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: semantic-router
+        app.kubernetes.io/component: router
+    spec:
+      initContainers:
+      - name: copy-config
+        image: ghcr.io/vllm-project/semantic-router/vllm-sr:latest
+        command: ["cp", "/tmp/config-init/config.yaml", "/config-rw/config.yaml"]
+        volumeMounts:
+        - name: router-config
+          mountPath: /tmp/config-init
+          readOnly: true
+        - name: config-writable
+          mountPath: /config-rw
+      containers:
+      - name: semantic-router
+        image: ghcr.io/vllm-project/semantic-router/vllm-sr:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: api
+          containerPort: 8801
+          protocol: TCP
+        - name: grpc
+          containerPort: 50051
+          protocol: TCP
+        - name: health
+          containerPort: 8080
+          protocol: TCP
+        - name: metrics
+          containerPort: 9190
+          protocol: TCP
+        - name: dashboard
+          containerPort: 8700
+          protocol: TCP
+        env:
+        - name: HOME
+          value: "/tmp"
+        - name: HF_HOME
+          value: "/tmp/hf-cache"
+        - name: HUGGINGFACE_HUB_CACHE
+          value: "/tmp/hf-cache"
+        - name: LITELLM_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: litellm-credentials
+              key: api-key
+        - name: TARGET_PROMETHEUS_URL
+          value: "http://prometheus.semantic-router.svc:9090"
+        - name: TARGET_GRAFANA_URL
+          value: "http://grafana.semantic-router.svc:3000"
+        volumeMounts:
+        - name: config-writable
+          mountPath: /app/config.yaml
+          subPath: config.yaml
+        - name: models
+          mountPath: /app/models
+        - name: hf-cache
+          mountPath: /tmp/hf-cache
+        - name: vllm-sr-workdir
+          mountPath: /app/.vllm-sr
+        - name: envoy-config
+          mountPath: /etc/envoy
+        resources:
+          requests:
+            memory: "2Gi"
+            cpu: "500m"
+          limits:
+            memory: "6Gi"
+            cpu: "2000m"
+        startupProbe:
+          httpGet:
+            path: /health
+            port: health
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 360
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: health
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 5
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: health
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+      volumes:
+      - name: router-config
+        configMap:
+          name: router-config
+      - name: config-writable
+        emptyDir: {}
+      - name: models
+        emptyDir:
+          sizeLimit: 25Gi
+      - name: hf-cache
+        emptyDir:
+          sizeLimit: 25Gi
+      - name: vllm-sr-workdir
+        emptyDir: {}
+      - name: envoy-config
+        emptyDir: {}
