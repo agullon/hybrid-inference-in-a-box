@@ -46,11 +46,13 @@ list. See
 
 ## First Boot
 
+> [!NOTE]
+> On first boot, infrastructure pods may show `CreateContainerConfigError`.
+> This is expected because API model secrets are not configured yet.
+
 ### 1. Boot the image
 
-Deploy via VM (qcow2), bare metal (ISO), or cloud (AMI). The image boots
-with MicroShift enabled. Infrastructure pods will be in
-`CreateContainerConfigError` state — this is expected.
+Deploy via VM (qcow2), bare metal (ISO), or cloud (AMI). The image boots with MicroShift enabled.
 
 **Quick start with KVM/libvirt** — the included helper script converts the
 container image to a qcow2 disk and creates a VM:
