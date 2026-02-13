@@ -62,11 +62,11 @@ RUN chmod +x /usr/local/bin/configure-semantic-router.sh /usr/local/bin/select-m
 # ─────────────────────────────────────────────────────────────────────────────
 # Default user — passwordless SSH for quick access to the appliance
 # ─────────────────────────────────────────────────────────────────────────────
-RUN mkdir -p /var/home && \
-    useradd -m -d /var/home/admin -G wheel admin && \
+RUN useradd -M -d /var/home/admin -G wheel admin && \
     passwd -d admin && \
     echo "%wheel ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/wheel-nopasswd && \
     chmod 440 /etc/sudoers.d/wheel-nopasswd && \
+    echo "d /var/home/admin 0700 admin admin -" > /etc/tmpfiles.d/admin-home.conf && \
     sed -i 's/^#\?PermitEmptyPasswords.*/PermitEmptyPasswords yes/' /etc/ssh/sshd_config && \
     sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
 
