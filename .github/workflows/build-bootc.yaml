@@ -79,43 +79,13 @@ jobs:
           echo '${{ steps.meta.outputs.tags }}' | while read -r tag; do
             [ -n "${tag}" ] || continue
             echo "Creating manifest for ${tag}"
-            sudo podman manifest create "${tag}" "${AMD64}" "${ARM64}"
+            sudo podman manifest create \
+              --annotation "org.opencontainers.image.title=hybrid-inference-in-a-box" \
+              --annotation "org.opencontainers.image.description=Immutable bootc appliance: MicroShift + vLLM Semantic Router" \
+              --annotation "org.opencontainers.image.source=https://github.com/${{ github.repository }}" \
+              --annotation "org.opencontainers.image.revision=${{ github.sha }}" \
+              "${tag}" "${AMD64}" "${ARM64}"
             sudo podman manifest push --all "${tag}" "docker://${tag}"
-          done
-
-      - name: Annotate manifest lists
-        run: |
-          TOKEN=$(echo -n "${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}" | base64)
-          REPO="${{ env.IMAGE_NAME }}"
-
-          echo '${{ steps.meta.outputs.tags }}' | while read -r tag; do
-            [ -n "${tag}" ] || continue
-            REF="${tag#*/}"    # strip registry host
-            REF="${REF#*/}"    # strip org → repo:tag
-            TAG="${REF#*:}"
-
-            echo "Annotating ${TAG}..."
-            MANIFEST=$(curl -sf \
-              -H "Authorization: Basic ${TOKEN}" \
-              -H "Accept: application/vnd.oci.image.index.v1+json" \
-              "https://${{ env.REGISTRY }}/v2/${REPO}/manifests/${TAG}")
-
-            ANNOTATED=$(echo "${MANIFEST}" | jq --arg src "https://github.com/${{ github.repository }}" \
-              --arg rev "${{ github.sha }}" \
-              '.annotations = {
-                "org.opencontainers.image.title": "hybrid-inference-in-a-box",
-                "org.opencontainers.image.description": "Immutable bootc appliance: MicroShift + vLLM Semantic Router",
-                "org.opencontainers.image.source": $src,
-                "org.opencontainers.image.revision": $rev
-              }')
-
-            curl -sf -X PUT \
-              -H "Authorization: Basic ${TOKEN}" \
-              -H "Content-Type: application/vnd.oci.image.index.v1+json" \
-              -d "${ANNOTATED}" \
-              "https://${{ env.REGISTRY }}/v2/${REPO}/manifests/${TAG}"
-
-            echo "Annotated ${TAG}"
           done
 
       - name: Clean up arch-specific tags
