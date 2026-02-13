@@ -62,7 +62,8 @@ RUN chmod +x /usr/local/bin/configure-semantic-router.sh /usr/local/bin/select-m
 # ─────────────────────────────────────────────────────────────────────────────
 # Default user — passwordless SSH for quick access to the appliance
 # ─────────────────────────────────────────────────────────────────────────────
-RUN useradd -m -G wheel admin && \
+RUN mkdir -p /var/home && \
+    useradd -m -d /var/home/admin -G wheel admin && \
     passwd -d admin && \
     echo "%wheel ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/wheel-nopasswd && \
     chmod 440 /etc/sudoers.d/wheel-nopasswd && \
@@ -75,7 +76,9 @@ RUN useradd -m -G wheel admin && \
 # Images are saved to dir: format at build time (no user-namespace needed),
 # then copied into CRI-O's containers-storage at boot via a systemd
 # ExecStartPre hook — the same pattern used by upstream MicroShift.
-RUN echo "root:100000:65536" > /etc/subuid && \
+RUN cp /etc/subuid /etc/subuid.bak 2>/dev/null || true && \
+    cp /etc/subgid /etc/subgid.bak 2>/dev/null || true && \
+    echo "root:100000:65536" > /etc/subuid && \
     echo "root:100000:65536" > /etc/subgid && \
     IMAGES=" \
       ghcr.io/vllm-project/semantic-router/vllm-sr:latest \
@@ -90,7 +93,8 @@ RUN echo "root:100000:65536" > /etc/subuid && \
         "docker://${img}" "dir:/usr/lib/containers/storage/${sha}" && \
       echo "${img},${sha}" >> /usr/lib/containers/storage/image-list.txt ; \
     done && \
-    rm -f /etc/subuid /etc/subgid
+    if [ -f /etc/subuid.bak ]; then mv /etc/subuid.bak /etc/subuid; fi && \
+    if [ -f /etc/subgid.bak ]; then mv /etc/subgid.bak /etc/subgid; fi
 
 # Install a systemd hook that copies the embedded images into CRI-O storage
 # on first boot, before MicroShift starts pulling pods.
