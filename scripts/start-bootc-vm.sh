@@ -65,7 +65,7 @@ else
 fi
 
 VM_NAME="${VM_NAME:-bootc-vm-$(date +%Y%m%d%H%M%S)}"
-VM_DIR="/home/microshift/agullon"
+VM_DIR="${BOOTC_VM_DIR:-${HOME}/bootc-vms}"
 DISK_PATH="${VM_DIR}/${VM_NAME}.qcow2"
 VM_USER="admin"
 SSH_TIMEOUT=120
@@ -144,8 +144,9 @@ sudo qemu-img resize "${DISK_PATH}" "${DISK_SIZE}G"
 # ─────────────────────────────────────────────────────────────────────────────
 # The image defaults to "full". If slim was requested, rewrite the kustomize
 # entry point so MicroShift picks the correct overlay on its first start.
+echo "STEP-04 Deployment mode: ${MODE}"
 if [[ "${MODE}" == "slim" ]]; then
-    echo "STEP-04 Setting deployment mode to slim..."
+    echo "        Setting deployment mode to slim..."
     KUSTOMIZATION="apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
@@ -154,8 +155,6 @@ resources:
     sudo virt-customize -a "${DISK_PATH}" \
         --write "/usr/lib/microshift/manifests.d/semantic-router/kustomization.yaml:${KUSTOMIZATION}"
 fi
-
-echo "STEP-04 Deployment mode: ${MODE}"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Create VM from the qcow2
