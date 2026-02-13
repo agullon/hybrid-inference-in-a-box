@@ -1,6 +1,12 @@
 ARG MICROSHIFT_VERSION=4.21.0_g29f429c21_4.21.0_okd_scos.ec.15
 FROM ghcr.io/microshift-io/microshift:${MICROSHIFT_VERSION}
 
+LABEL org.opencontainers.image.title="hybrid-inference-in-a-box" \
+      org.opencontainers.image.description="Immutable bootc appliance: MicroShift + vLLM Semantic Router" \
+      org.opencontainers.image.source="https://github.com/agullon/hybrid-inference-in-a-box" \
+      org.opencontainers.image.vendor="Red Hat" \
+      org.opencontainers.image.base.name="ghcr.io/microshift-io/microshift:${MICROSHIFT_VERSION}"
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Firewall rules
 # ─────────────────────────────────────────────────────────────────────────────
