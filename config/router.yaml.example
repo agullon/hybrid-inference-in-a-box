@@ -1,0 +1,28 @@
+# router.yaml — Model configuration for the Semantic Router
+#
+# Copy this file, edit the models/endpoints/keys, and apply:
+#
+#   cp router.yaml.example router.yaml
+#   sudo configure-semantic-router.sh router.yaml
+#
+# To add more models, add entries to the models list.
+
+providers:
+  models:
+    - name: "Mistral-Small-24B-W8A8"
+      endpoints:
+        - name: "litellm"
+          weight: 1
+          endpoint: "litellm.example.com:443"
+          protocol: "https"
+      access_key: "sk-your-key-here"
+
+    - name: "Granite-3.3-8B-Instruct"
+      endpoints:
+        - name: "litellm"
+          weight: 1
+          endpoint: "litellm.example.com:443"
+          protocol: "https"
+      access_key: "sk-your-key-here"
+
+  default_model: "Granite-3.3-8B-Instruct"

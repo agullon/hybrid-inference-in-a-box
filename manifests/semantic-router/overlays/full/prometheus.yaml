@@ -1,0 +1,109 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: semantic-router
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+    scrape_configs:
+    - job_name: 'semantic-router'
+      static_configs:
+      - targets: ['semantic-router:9190']
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: semantic-router
+  labels:
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/part-of: hybrid-inference
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: prometheus
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: prometheus
+    spec:
+      containers:
+      - name: prometheus
+        image: docker.io/prom/prometheus:v2.53.3
+        args:
+        - '--config.file=/etc/prometheus/prometheus.yml'
+        - '--storage.tsdb.path=/prometheus'
+        - '--storage.tsdb.retention.time=7d'
+        - '--web.listen-address=:9090'
+        ports:
+        - name: http
+          containerPort: 9090
+          protocol: TCP
+        volumeMounts:
+        - name: prometheus-config
+          mountPath: /etc/prometheus
+          readOnly: true
+        - name: prometheus-data
+          mountPath: /prometheus
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        readinessProbe:
+          httpGet:
+            path: /-/ready
+            port: http
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /-/healthy
+            port: http
+          initialDelaySeconds: 10
+          periodSeconds: 30
+      volumes:
+      - name: prometheus-config
+        configMap:
+          name: prometheus-config
+      - name: prometheus-data
+        emptyDir:
+          sizeLimit: 2Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: semantic-router
+  labels:
+    app.kubernetes.io/name: prometheus
+spec:
+  selector:
+    app.kubernetes.io/name: prometheus
+  ports:
+  - name: http
+    port: 9090
+    targetPort: http
+    protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: semantic-router-metrics
+  namespace: semantic-router
+  labels:
+    app.kubernetes.io/name: semantic-router
+spec:
+  selector:
+    app.kubernetes.io/name: semantic-router
+  ports:
+  - name: metrics
+    port: 9190
+    targetPort: metrics
+    protocol: TCP

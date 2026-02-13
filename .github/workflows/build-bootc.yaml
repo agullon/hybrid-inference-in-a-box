@@ -1,0 +1,110 @@
+name: Build bootc image
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Free up disk space
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
+          sudo docker image prune --all --force
+          df -h /
+
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | sudo podman login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin
+
+      - name: Build image
+        run: |
+          sudo podman build \
+            --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}-${{ matrix.arch }} \
+            --file Containerfile .
+
+      - name: Push arch-specific image
+        if: github.event_name != 'pull_request'
+        run: sudo podman push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}-${{ matrix.arch }}
+
+  manifest:
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+
+    steps:
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | sudo podman login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha
+            type=ref,event=branch
+
+      - name: Create and push manifest lists
+        run: |
+          AMD64=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}-amd64
+          ARM64=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}-arm64
+
+          echo '${{ steps.meta.outputs.tags }}' | while read -r tag; do
+            [ -n "${tag}" ] || continue
+            echo "Creating manifest for ${tag}"
+            sudo podman manifest create "${tag}" "${AMD64}" "${ARM64}"
+            sudo podman manifest push --all "${tag}" "docker://${tag}"
+          done
+
+      - name: Install oras
+        uses: oras-project/setup-oras@v1
+
+      - name: Annotate manifest lists
+        run: |
+          oras login ${{ env.REGISTRY }} -u ${{ github.actor }} -p ${{ secrets.GITHUB_TOKEN }}
+
+          echo '${{ steps.meta.outputs.tags }}' | while read -r tag; do
+            [ -n "${tag}" ] || continue
+            echo "Annotating ${tag}..."
+
+            oras manifest fetch "${tag}" | jq \
+              --arg src "https://github.com/${{ github.repository }}" \
+              --arg rev "${{ github.sha }}" \
+              '.annotations = {
+                "org.opencontainers.image.title": "hybrid-inference-in-a-box",
+                "org.opencontainers.image.description": "Immutable bootc appliance: MicroShift + vLLM Semantic Router",
+                "org.opencontainers.image.source": $src,
+                "org.opencontainers.image.revision": $rev
+              }' > /tmp/annotated-manifest.json
+
+            oras manifest push "${tag}" /tmp/annotated-manifest.json
+
+            echo "Annotated ${tag}"
+          done
