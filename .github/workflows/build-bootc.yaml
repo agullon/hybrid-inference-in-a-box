@@ -80,7 +80,12 @@ jobs:
             [ -n "${tag}" ] || continue
             echo "Creating manifest for ${tag}"
             sudo podman manifest create "${tag}" "${AMD64}" "${ARM64}"
-            sudo podman manifest push "${tag}" "docker://${tag}"
+            sudo podman manifest push --all "${tag}" "docker://${tag}" \
+              --add-compression zstd \
+              --annotation "org.opencontainers.image.title=hybrid-inference-in-a-box" \
+              --annotation "org.opencontainers.image.description=Immutable bootc appliance: MicroShift + vLLM Semantic Router" \
+              --annotation "org.opencontainers.image.source=https://github.com/${{ github.repository }}" \
+              --annotation "org.opencontainers.image.revision=${{ github.sha }}"
           done
 
       - name: Clean up arch-specific tags
