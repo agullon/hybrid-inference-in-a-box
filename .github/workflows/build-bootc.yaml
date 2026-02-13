@@ -108,30 +108,3 @@ jobs:
 
             echo "Annotated ${tag}"
           done
-
-      - name: Clean up arch-specific tags
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          REPO="${{ github.repository }}"
-          PACKAGE="${REPO#*/}"
-          for arch in amd64 arm64; do
-            TAG="${{ github.sha }}-${arch}"
-            echo "Deleting ${PACKAGE}:${TAG}"
-            VERSION_ID=$(gh api \
-              "orgs/${{ github.repository_owner }}/packages/container/${PACKAGE}/versions" \
-              --jq ".[] | select(.metadata.container.tags[] == \"${TAG}\") | .id" 2>/dev/null) || \
-            VERSION_ID=$(gh api \
-              "users/${{ github.repository_owner }}/packages/container/${PACKAGE}/versions" \
-              --jq ".[] | select(.metadata.container.tags[] == \"${TAG}\") | .id" 2>/dev/null)
-            if [ -n "${VERSION_ID}" ]; then
-              gh api --method DELETE \
-                "users/${{ github.repository_owner }}/packages/container/${PACKAGE}/versions/${VERSION_ID}" || \
-              gh api --method DELETE \
-                "orgs/${{ github.repository_owner }}/packages/container/${PACKAGE}/versions/${VERSION_ID}"
-              echo "Deleted version ${VERSION_ID}"
-            else
-              echo "Version not found for tag ${TAG}, skipping"
-            fi
-          done
