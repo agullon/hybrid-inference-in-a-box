@@ -64,6 +64,20 @@ fi
 info "Loading config from ${CONFIG_FILE}..."
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Validate YAML syntax
+# ─────────────────────────────────────────────────────────────────────────────
+if ! python3 -c "
+import yaml, sys
+try:
+    yaml.safe_load(open(sys.argv[1]))
+except yaml.YAMLError as e:
+    print(f'YAML syntax error in {sys.argv[1]}:\n{e}', file=sys.stderr)
+    sys.exit(1)
+" "${CONFIG_FILE}"; then
+    err "Invalid YAML in ${CONFIG_FILE}. Fix the syntax errors above and retry."
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Extract model names from the config
 # ─────────────────────────────────────────────────────────────────────────────
 # Model names are the top-level `- name:` entries under `providers.models`,
@@ -105,6 +119,13 @@ fi
 
 info "Rendering config from ${TEMPLATE}..."
 
+# Validate model count against template placeholders
+PLACEHOLDER_COUNT=$(grep -oE '__MODEL_[0-9]+__' "${TEMPLATE}" | sort -u | wc -l | tr -d ' ')
+if [[ ${#MODEL_NAMES[@]} -lt ${PLACEHOLDER_COUNT} ]]; then
+    warn "Config provides ${#MODEL_NAMES[@]} model(s) but template expects ${PLACEHOLDER_COUNT}."
+    warn "Unsubstituted __MODEL_N__ placeholders will remain in the rendered config."
+fi
+
 # Read the config file (providers section) and inject into the template
 PROVIDERS_CONTENT=$(cat "${CONFIG_FILE}")
 RENDERED_CONFIG=$(python3 -c "
@@ -118,6 +139,12 @@ print(template.replace('__PROVIDERS__', providers))
 for i in "${!MODEL_NAMES[@]}"; do
     RENDERED_CONFIG="${RENDERED_CONFIG//__MODEL_${i}__/${MODEL_NAMES[$i]}}"
 done
+
+# Check for any remaining unsubstituted placeholders
+REMAINING=$(echo "${RENDERED_CONFIG}" | grep -oE '__MODEL_[0-9]+__' | sort -u || true)
+if [[ -n "${REMAINING}" ]]; then
+    warn "Unsubstituted placeholders in rendered config: ${REMAINING//$'\n'/, }"
+fi
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Ensure namespace exists
@@ -146,10 +173,28 @@ if [[ "${MODE}" == "slim" ]]; then
     fi
 
     # Extract the first endpoint hostname for Envoy upstream
-    ENVOY_ENDPOINT=$(grep -m1 'endpoint:' "${CONFIG_FILE}" | sed 's/.*endpoint:[[:space:]]*//' | tr -d '"' | tr -d "'" | sed 's/:[0-9]*$//')
+    ENVOY_ENDPOINT=$(python3 -c "
+import yaml, sys
+from urllib.parse import urlparse
+cfg = yaml.safe_load(open(sys.argv[1]))
+for m in cfg.get('providers', {}).get('models', []):
+    for ep in m.get('endpoints', []):
+        url = ep.get('endpoint', '')
+        parsed = urlparse(url if '://' in url else 'http://' + url)
+        host = parsed.hostname or ''
+        if host:
+            print(host)
+            sys.exit(0)
+sys.exit(1)
+" "${CONFIG_FILE}") || true
 
     if [[ -z "${ENVOY_ENDPOINT}" ]]; then
         err "Could not extract endpoint from config for Envoy"
+    fi
+
+    # Basic hostname sanity check
+    if [[ "${ENVOY_ENDPOINT}" != *.* ]]; then
+        warn "Endpoint '${ENVOY_ENDPOINT}' does not look like a valid hostname (no dots)."
     fi
 
     info "Rendering Envoy config (upstream: ${ENVOY_ENDPOINT})..."
