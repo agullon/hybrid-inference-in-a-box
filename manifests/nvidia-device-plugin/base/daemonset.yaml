@@ -26,35 +26,40 @@ spec:
       priorityClassName: "system-node-critical"
       containers:
       - name: nvidia-device-plugin
-        image: nvcr.io/nvidia/k8s-device-plugin:v0.17.0
+        image: nvcr.io/nvidia/k8s-device-plugin:v0.18.0
         imagePullPolicy: IfNotPresent
-        env:
-        - name: FAIL_ON_INIT_ERROR
-          value: "false"
-        - name: DEVICE_LIST_STRATEGY
-          value: "cdi-annotations"
-        - name: DEVICE_ID_STRATEGY
-          value: "uuid"
-        - name: CDI_ANNOTATION_PREFIX
-          value: "cdi.k8s.io/"
-        - name: NVIDIA_CTK_PATH
-          value: "/usr/bin/nvidia-ctk"
-        - name: PASS_DEVICE_SPECS
-          value: "true"
+        args:
+        - --config-file=/config/config.yaml
+        - --container-driver-root=/
+        - --nvidia-dev-root=/
         securityContext:
-          allowPrivilegeEscalation: false
-          capabilities:
-            drop: ["ALL"]
+          privileged: true
         volumeMounts:
         - name: device-plugin
           mountPath: /var/lib/kubelet/device-plugins
-        - name: cdi-specs
+        - name: cdi-specs-etc
           mountPath: /etc/cdi
+        - name: cdi-specs-run
+          mountPath: /var/run/cdi
+        - name: driver-root
+          mountPath: /driver-root
+          readOnly: true
+        - name: config
+          mountPath: /config
           readOnly: true
       volumes:
       - name: device-plugin
         hostPath:
           path: /var/lib/kubelet/device-plugins
-      - name: cdi-specs
+      - name: cdi-specs-etc
         hostPath:
           path: /etc/cdi
+      - name: cdi-specs-run
+        hostPath:
+          path: /var/run/cdi
+      - name: driver-root
+        hostPath:
+          path: /
+      - name: config
+        configMap:
+          name: nvidia-device-plugin
