@@ -39,7 +39,19 @@ RUN chmod +x /usr/local/bin/create-vg.sh && \
     printf '[Unit]\nDescription=Create loopback LVM VG for TopoLVM\nBefore=microshift.service\nAfter=local-fs.target\n\n[Service]\nType=oneshot\nExecStart=/usr/local/bin/create-vg.sh\nRemainAfterExit=yes\n\n[Install]\nWantedBy=multi-user.target\n' \
       > /etc/systemd/system/create-vg.service
 
-RUN systemctl enable firewalld microshift make-rshared create-vg
+# ─────────────────────────────────────────────────────────────────────────────
+# NVIDIA Container Toolkit + CDI — expose GPUs to CRI-O via CDI specs
+# ─────────────────────────────────────────────────────────────────────────────
+# The NVIDIA device plugin runs in CDI mode (required for integrated GPUs like
+# the GB10 / DGX Spark where NVML can't enumerate device memory). CDI specs
+# are generated on every boot before MicroShift starts.
+RUN dnf install -y nvidia-container-toolkit && dnf clean all
+COPY scripts/generate-nvidia-cdi.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/generate-nvidia-cdi.sh && \
+    printf '[Unit]\nDescription=Generate NVIDIA CDI specs for CRI-O\nBefore=microshift.service\nAfter=local-fs.target\n\n[Service]\nType=oneshot\nExecStart=/usr/local/bin/generate-nvidia-cdi.sh\nRemainAfterExit=yes\n\n[Install]\nWantedBy=multi-user.target\n' \
+      > /etc/systemd/system/generate-nvidia-cdi.service
+
+RUN systemctl enable firewalld microshift make-rshared create-vg generate-nvidia-cdi
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Kustomize manifests — infrastructure only, no configuration baked in

@@ -31,6 +31,16 @@ spec:
         env:
         - name: FAIL_ON_INIT_ERROR
           value: "false"
+        - name: DEVICE_LIST_STRATEGY
+          value: "cdi-annotations"
+        - name: DEVICE_ID_STRATEGY
+          value: "uuid"
+        - name: CDI_ANNOTATION_PREFIX
+          value: "cdi.k8s.io/"
+        - name: NVIDIA_CTK_PATH
+          value: "/usr/bin/nvidia-ctk"
+        - name: PASS_DEVICE_SPECS
+          value: "true"
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:
@@ -38,7 +48,13 @@ spec:
         volumeMounts:
         - name: device-plugin
           mountPath: /var/lib/kubelet/device-plugins
+        - name: cdi-specs
+          mountPath: /etc/cdi
+          readOnly: true
       volumes:
       - name: device-plugin
         hostPath:
           path: /var/lib/kubelet/device-plugins
+      - name: cdi-specs
+        hostPath:
+          path: /etc/cdi
