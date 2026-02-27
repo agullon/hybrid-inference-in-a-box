@@ -172,33 +172,56 @@ if [[ "${MODE}" == "slim" ]]; then
         err "Envoy template not found: ${ENVOY_TMPL}"
     fi
 
-    # Extract the first endpoint hostname for Envoy upstream
-    ENVOY_ENDPOINT=$(python3 -c "
+    # Extract the first endpoint hostname, port, and protocol for Envoy upstream
+    read -r ENVOY_HOST ENVOY_PORT ENVOY_PROTOCOL < <(python3 -c "
 import yaml, sys
 from urllib.parse import urlparse
 cfg = yaml.safe_load(open(sys.argv[1]))
 for m in cfg.get('providers', {}).get('models', []):
     for ep in m.get('endpoints', []):
         url = ep.get('endpoint', '')
+        protocol = ep.get('protocol', 'https')
         parsed = urlparse(url if '://' in url else 'http://' + url)
         host = parsed.hostname or ''
+        port = parsed.port
+        if not port:
+            port = 443 if protocol == 'https' else 8000
         if host:
-            print(host)
+            print(f'{host} {port} {protocol}')
             sys.exit(0)
 sys.exit(1)
 " "${CONFIG_FILE}") || true
 
-    if [[ -z "${ENVOY_ENDPOINT}" ]]; then
+    if [[ -z "${ENVOY_HOST}" ]]; then
         err "Could not extract endpoint from config for Envoy"
     fi
 
     # Basic hostname sanity check
-    if [[ "${ENVOY_ENDPOINT}" != *.* ]]; then
-        warn "Endpoint '${ENVOY_ENDPOINT}' does not look like a valid hostname (no dots)."
+    if [[ "${ENVOY_HOST}" != *.* ]]; then
+        warn "Endpoint '${ENVOY_HOST}' does not look like a valid hostname (no dots)."
     fi
 
-    info "Rendering Envoy config (upstream: ${ENVOY_ENDPOINT})..."
-    RENDERED_ENVOY=$(sed "s|__ENDPOINT_GENERAL__|${ENVOY_ENDPOINT}|g" "${ENVOY_TMPL}")
+    info "Rendering Envoy config (upstream: ${ENVOY_HOST}:${ENVOY_PORT}, protocol: ${ENVOY_PROTOCOL})..."
+
+    # Build the TLS transport_socket block (only for https endpoints)
+    TLS_BLOCK=""
+    if [[ "${ENVOY_PROTOCOL}" == "https" ]]; then
+        TLS_BLOCK=$(cat <<'TLSEOF'
+    transport_socket:
+      name: envoy.transport_sockets.tls
+      typed_config:
+        "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
+        sni: __ENDPOINT_GENERAL__
+TLSEOF
+)
+        TLS_BLOCK="${TLS_BLOCK//__ENDPOINT_GENERAL__/${ENVOY_HOST}}"
+    fi
+
+    RENDERED_ENVOY=$(sed \
+        -e "s|__ENDPOINT_GENERAL__|${ENVOY_HOST}|g" \
+        -e "s|__PORT__|${ENVOY_PORT}|g" \
+        "${ENVOY_TMPL}")
+    RENDERED_ENVOY="${RENDERED_ENVOY//__TLS_TRANSPORT_SOCKET__/${TLS_BLOCK}}"
 
     ${KUBECTL} -n "${NAMESPACE}" create configmap envoy-config \
         --from-literal=envoy.yaml="${RENDERED_ENVOY}" \

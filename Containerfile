@@ -49,6 +49,7 @@ RUN systemctl enable firewalld microshift make-rshared create-vg
 # and Secrets that don't exist yet — pods will wait until
 # configure-semantic-router.sh creates them post-boot.
 COPY manifests/semantic-router/ /usr/lib/microshift/manifests.d/semantic-router/
+COPY manifests/vllm-slm/ /usr/lib/microshift/manifests.d/vllm-slm/
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Configuration templates + helper scripts
@@ -85,7 +86,8 @@ RUN cp /etc/subuid /etc/subuid.bak 2>/dev/null || true && \
       ghcr.io/vllm-project/semantic-router/extproc:latest \
       docker.io/envoyproxy/envoy:v1.31.7 \
       docker.io/prom/prometheus:v2.53.3 \
-      docker.io/grafana/grafana:11.4.0" && \
+      docker.io/grafana/grafana:11.4.0 \
+      vllm/vllm-openai:latest" && \
     mkdir -p /usr/lib/containers/storage && \
     for img in ${IMAGES}; do \
       sha="$(echo "${img}" | sha256sum | awk '{print $1}')" && \
