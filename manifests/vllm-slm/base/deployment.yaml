@@ -27,11 +27,16 @@ spec:
         - "Qwen/Qwen2.5-1.5B-Instruct"
         - "--max-model-len"
         - "4096"
+        - "--gpu-memory-utilization"
+        - "0.5"
+        - "--enforce-eager"
         ports:
         - name: api
           containerPort: 8000
           protocol: TCP
         env:
+        - name: HOME
+          value: "/tmp"
         - name: HF_HOME
           value: "/tmp/hf-cache"
         - name: HUGGINGFACE_HUB_CACHE
