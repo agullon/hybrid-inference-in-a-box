@@ -120,22 +120,19 @@ curl http://<IP>:30500/v1/models
 
 ### 4. Configure the semantic router
 
-Create a `router.yaml` with your models, endpoints, and API keys
-(see [`config/router.yaml.example`](config/router.yaml.example)):
+Copy the example config and edit it:
+
+```bash
+cp config/router.yaml.example router.yaml
+vi router.yaml   # edit endpoints, API keys, models
+sudo configure-semantic-router.sh router.yaml
+```
+
+**Local SLM only** (simplest setup — no external endpoints needed):
 
 ```yaml
 providers:
   models:
-    # External models (routed via HTTPS)
-    - name: "Mistral-Small-24B-W8A8"
-      endpoints:
-        - name: "litellm"
-          weight: 1
-          endpoint: "litellm.example.com:443"
-          protocol: "https"
-      access_key: "sk-your-key-here"
-
-    # Local SLM (routed via HTTP to on-device vLLM)
     - name: "Qwen2.5-1.5B-Instruct"
       endpoints:
         - name: "local-vllm"
@@ -147,10 +144,28 @@ providers:
   default_model: "Qwen2.5-1.5B-Instruct"
 ```
 
-Apply it:
+**Hybrid** (local SLM + external LLMs — edit endpoints and keys):
 
-```bash
-sudo configure-semantic-router.sh router.yaml
+```yaml
+providers:
+  models:
+    - name: "Mistral-Small-24B-W8A8"
+      endpoints:
+        - name: "litellm"
+          weight: 1
+          endpoint: "litellm.example.com:443"
+          protocol: "https"
+      access_key: "sk-your-key-here"
+
+    - name: "Qwen2.5-1.5B-Instruct"
+      endpoints:
+        - name: "local-vllm"
+          weight: 1
+          endpoint: "vllm-slm.vllm-slm.svc:8000"
+          protocol: "http"
+      access_key: "none"
+
+  default_model: "Qwen2.5-1.5B-Instruct"
 ```
 
 ### 5. Wait for router pods

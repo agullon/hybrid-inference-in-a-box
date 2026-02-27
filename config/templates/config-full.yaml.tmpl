@@ -69,10 +69,32 @@ decisions:
       - model: "__MODEL_0__"
         use_reasoning: false
     plugins:
-      - type: "pii"
+      - type: "router_replay"
         configuration:
           enabled: true
-          pii_types_allowed: []
+          max_records: 200
+          capture_request_body: true
+          capture_response_body: true
+          max_body_bytes: 4096
+
+  - name: "science"
+    description: "Route science and research queries to Granite (external)"
+    priority: 90
+    rules:
+      operator: "OR"
+      conditions:
+        - type: "domain"
+          name: "biology"
+        - type: "domain"
+          name: "chemistry"
+        - type: "domain"
+          name: "physics"
+        - type: "domain"
+          name: "health"
+    modelRefs:
+      - model: "__MODEL_1__"
+        use_reasoning: false
+    plugins:
       - type: "router_replay"
         configuration:
           enabled: true
@@ -82,7 +104,7 @@ decisions:
           max_body_bytes: 4096
 
   - name: "general"
-    description: "Default route for all other queries"
+    description: "Default route for all other queries to local SLM"
     priority: 1
     rules:
       operator: "OR"
@@ -91,14 +113,6 @@ decisions:
           name: "other"
         - type: "domain"
           name: "math"
-        - type: "domain"
-          name: "physics"
-        - type: "domain"
-          name: "biology"
-        - type: "domain"
-          name: "chemistry"
-        - type: "domain"
-          name: "health"
         - type: "domain"
           name: "business"
         - type: "domain"
@@ -112,13 +126,9 @@ decisions:
         - type: "domain"
           name: "philosophy"
     modelRefs:
-      - model: "__MODEL_1__"
+      - model: "__MODEL_2__"
         use_reasoning: false
     plugins:
-      - type: "pii"
-        configuration:
-          enabled: true
-          pii_types_allowed: []
       - type: "router_replay"
         configuration:
           enabled: true
