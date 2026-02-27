@@ -50,6 +50,7 @@ RUN systemctl enable firewalld microshift make-rshared create-vg
 # configure-semantic-router.sh creates them post-boot.
 COPY manifests/semantic-router/ /usr/lib/microshift/manifests.d/semantic-router/
 COPY manifests/vllm-slm/ /usr/lib/microshift/manifests.d/vllm-slm/
+COPY manifests/nvidia-device-plugin/ /usr/lib/microshift/manifests.d/nvidia-device-plugin/
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Configuration templates + helper scripts
@@ -87,7 +88,8 @@ RUN cp /etc/subuid /etc/subuid.bak 2>/dev/null || true && \
       docker.io/envoyproxy/envoy:v1.31.7 \
       docker.io/prom/prometheus:v2.53.3 \
       docker.io/grafana/grafana:11.4.0 \
-      vllm/vllm-openai:latest" && \
+      vllm/vllm-openai:latest \
+      nvcr.io/nvidia/k8s-device-plugin:v0.17.0" && \
     mkdir -p /usr/lib/containers/storage && \
     for img in ${IMAGES}; do \
       sha="$(echo "${img}" | sha256sum | awk '{print $1}')" && \
