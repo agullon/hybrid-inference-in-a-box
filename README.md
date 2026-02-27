@@ -1,35 +1,59 @@
 # Hybrid Inference in a Box — bootc Image
 
 An immutable, self-contained appliance that boots MicroShift with the vLLM
-Semantic Router pre-deployed. No SSH-and-apply workflow — just boot, configure
-your LLM backend, and start routing.
+Semantic Router and a local Small Language Model (SLM) pre-deployed. Simpler
+queries run on-device via the local GPU; complex queries route to external
+LLM endpoints — all through a single OpenAI-compatible API.
 
 ## Architecture
 
 ```
 bootc image (CentOS Stream 10)
 ├── MicroShift (RPM, auto-starts on boot)
-├── /usr/lib/microshift/manifests.d/semantic-router/
-│   ├── kustomization.yaml          ← selects full or slim overlay
-│   ├── base/                       ← namespace
-│   ├── overlays/full/              ← vllm-sr + grafana + prometheus
-│   └── overlays/slim/              ← extproc + envoy sidecar
+├── manifests.d/semantic-router/    ← semantic router (full or slim mode)
+├── manifests.d/vllm-slm/          ← local SLM (Qwen2.5-1.5B on GPU)
 ├── Pre-pulled container images
+├── NVIDIA Container Toolkit + CDI  ← GPU runtime (systemd, on every boot)
+├── GPU Operator (Helm, post-boot)  ← device plugin + GPU feature discovery
+├── /usr/local/bin/setup-gpu-operator.sh
 ├── /usr/local/bin/configure-semantic-router.sh
-├── /usr/local/bin/select-mode.sh
-└── /etc/semantic-router/templates/ ← config templates with placeholders
+└── /etc/semantic-router/templates/
+
+┌──────────────────────────────┐     ┌──────────────────────────────┐
+│  semantic-router namespace   │     │  vllm-slm namespace          │
+│  ┌────────────────────────┐  │     │  ┌────────────────────────┐  │
+│  │ semantic-router Deploy │  │     │  │ vllm-slm Deployment    │  │
+│  │ ├─ extproc (routing)   │  │     │  │ └─ vLLM container      │  │
+│  │ └─ envoy (proxy) ──────┼──┼────►│  │    Qwen2.5-1.5B        │  │
+│  └────────────────────────┘  │     │  │    port 8000 (OpenAI)  │  │
+│  NodePort 30801 (API)        │     │  │    NVIDIA GPU           │  │
+└──────────────────────────────┘     │  └────────────────────────┘  │
+         │                           │  NodePort 30500 (direct API) │
+         │                           └──────────────────────────────┘
+         │
+         ├───► External LLM (e.g. litellm.example.com, HTTPS)
+         └───► Local SLM (vllm-slm.vllm-slm.svc:8000, HTTP)
 ```
 
-**Two-stage boot flow:**
-1. MicroShift starts → applies infrastructure manifests → pods wait for config
-2. User runs `configure-semantic-router.sh` → creates ConfigMap + Secret → pods start
+**Three-stage boot flow:**
+1. MicroShift starts → applies manifests → pods wait for config
+2. User runs `setup-gpu-operator.sh` → GPU becomes available → SLM pod starts
+3. User runs `configure-semantic-router.sh` → creates ConfigMap + Secret → router starts
+
+## Components
+
+| Component | Namespace | Description |
+|-----------|-----------|-------------|
+| **Semantic Router** | `semantic-router` | Routes queries to the right model based on domain classification |
+| **vLLM SLM** | `vllm-slm` | Local Qwen2.5-1.5B-Instruct served by vLLM on GPU |
+| **GPU Operator** | `gpu-operator` | NVIDIA device plugin + GPU feature discovery (Helm) |
 
 ## Deployment Modes
 
-| Mode | Components | Disk | RAM | Ports |
-|------|-----------|------|-----|-------|
-| **full** (default) | vllm-sr all-in-one + Grafana + Prometheus | ~100GB | ~8GB | API:30801, Dashboard:30700, Grafana:30300 |
-| **slim** | extproc + Envoy sidecar | ~20GB | ~4GB | API:30801 |
+| Mode | Components | Ports |
+|------|-----------|-------|
+| **full** (default) | vllm-sr all-in-one + Grafana + Prometheus + SLM | API:30801, SLM:30500, Dashboard:30700, Grafana:30300 |
+| **slim** | extproc + Envoy sidecar + SLM | API:30801, SLM:30500 |
 
 ## Build
 
@@ -39,23 +63,22 @@ podman build -t hybrid-inference-bootc:latest -f Containerfile .
 
 CI builds run automatically on push to `main` and publish multi-arch
 (amd64 + arm64) manifest lists to
-`ghcr.io/<owner>/hybrid-inference-in-a-box:<tag>`. Each architecture is
-built in parallel on its native runner, then combined into a single manifest
-list. See
+`ghcr.io/<owner>/hybrid-inference-in-a-box:<tag>`. See
 [`.github/workflows/build-bootc.yaml`](.github/workflows/build-bootc.yaml).
 
 ## First Boot
 
 > [!NOTE]
-> On first boot, infrastructure pods may show `CreateContainerConfigError`.
-> This is expected because API model secrets are not configured yet.
+> On first boot, infrastructure pods may show `CreateContainerConfigError`
+> (waiting for ConfigMap/Secret) and the vLLM SLM pod will show `Pending`
+> (waiting for GPU resources). This is expected.
 
 ### 1. Boot the image
 
-Deploy via VM (qcow2), bare metal (ISO), or cloud (AMI). The image boots with MicroShift enabled.
+Deploy via VM (qcow2), bare metal (ISO), or cloud (AMI). MicroShift starts
+automatically.
 
-**Quick start with KVM/libvirt** — the included helper script converts the
-container image to a qcow2 disk and creates a VM:
+**Quick start with KVM/libvirt:**
 
 ```bash
 # Full mode (8GB RAM, 4 vCPUs, 100GB disk)
@@ -63,19 +86,39 @@ container image to a qcow2 disk and creates a VM:
 
 # Slim mode (4GB RAM, 2 vCPUs, 40GB disk)
 ./scripts/start-bootc-vm.sh --mode=slim
-
-# Specify a custom image and VM name
-./scripts/start-bootc-vm.sh --image=ghcr.io/org/hybrid-inference-in-a-box:main my-vm
-
-# Delete a VM
-./scripts/start-bootc-vm.sh --delete my-vm
 ```
 
-The script auto-detects the image from the git remote or the GHCR API, uses
-`bootc-image-builder` to produce the qcow2, sets the deployment mode, and
-waits for the VM to get an IP address.
+### 2. Set up GPU support
 
-### 2. Configure the router
+The GPU Operator installs the NVIDIA device plugin and GPU feature discovery.
+This is required for the SLM pod to access the GPU.
+
+```bash
+sudo setup-gpu-operator.sh
+```
+
+This script:
+- Configures CRI-O with the NVIDIA container runtime
+- Generates CDI specs for GPU device injection
+- Grants OpenShift SCCs to GPU Operator service accounts
+- Installs the GPU Operator via Helm (driver + toolkit disabled, uses host drivers)
+- Waits for `nvidia.com/gpu` to be advertised
+
+### 3. Wait for the SLM to start
+
+Once the GPU is available, the vLLM SLM pod downloads the model from
+HuggingFace and starts serving. First boot takes a few minutes for the
+download.
+
+```bash
+sudo kubectl -n vllm-slm get pods -w
+# Wait for READY 1/1
+
+# Verify the model is serving
+curl http://<IP>:30500/v1/models
+```
+
+### 4. Configure the semantic router
 
 Create a `router.yaml` with your models, endpoints, and API keys
 (see [`config/router.yaml.example`](config/router.yaml.example)):
@@ -83,6 +126,7 @@ Create a `router.yaml` with your models, endpoints, and API keys
 ```yaml
 providers:
   models:
+    # External models (routed via HTTPS)
     - name: "Mistral-Small-24B-W8A8"
       endpoints:
         - name: "litellm"
@@ -91,26 +135,25 @@ providers:
           protocol: "https"
       access_key: "sk-your-key-here"
 
-    - name: "Granite-3.3-8B-Instruct"
+    # Local SLM (routed via HTTP to on-device vLLM)
+    - name: "Qwen2.5-1.5B-Instruct"
       endpoints:
-        - name: "litellm"
+        - name: "local-vllm"
           weight: 1
-          endpoint: "litellm.example.com:443"
-          protocol: "https"
-      access_key: "sk-your-key-here"
+          endpoint: "vllm-slm.vllm-slm.svc:8000"
+          protocol: "http"
+      access_key: "none"
 
-  default_model: "Granite-3.3-8B-Instruct"
+  default_model: "Qwen2.5-1.5B-Instruct"
 ```
 
-Each model can point to a different endpoint and API key. The rest of the
-router config (signals, routing decisions, listeners) comes from the
-baked-in template.
+Apply it:
 
 ```bash
 sudo configure-semantic-router.sh router.yaml
 ```
 
-### 3. Wait for pods to start
+### 5. Wait for router pods
 
 ```bash
 sudo kubectl -n semantic-router get pods -w
@@ -119,29 +162,58 @@ sudo kubectl -n semantic-router get pods -w
 Full mode downloads ~18GB of classifier models on first boot. Slim mode
 downloads ~500MB.
 
-### 4. Access
+### 6. Access
 
-**Full mode:**
-- API: `http://<IP>:30801/v1/chat/completions`
-- Dashboard: `http://<IP>:30700`
-- Grafana: `http://<IP>:30300`
+| Endpoint | URL |
+|----------|-----|
+| Router API | `http://<IP>:30801/v1/chat/completions` |
+| SLM direct | `http://<IP>:30500/v1/chat/completions` |
+| Dashboard (full) | `http://<IP>:30700` |
+| Grafana (full) | `http://<IP>:30300` |
 
-**Slim mode:**
-- API: `http://<IP>:30801/v1/chat/completions`
-
-### 5. Test
+### 7. Test
 
 ```bash
-# Coding query → routes to coding model
+# Simple query → routed to local SLM
+curl -s http://<IP>:30801/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"auto","messages":[{"role":"user","content":"What is photosynthesis?"}]}' | jq .
+
+# Coding query → routed to external model
 curl -s http://<IP>:30801/v1/chat/completions \
   -H 'Content-Type: application/json' \
   -d '{"model":"auto","messages":[{"role":"user","content":"Write a Python quicksort"}]}' | jq .
 
-# General query → routes to general model
-curl -s http://<IP>:30801/v1/chat/completions \
+# Direct SLM access (bypass router)
+curl -s http://<IP>:30500/v1/chat/completions \
   -H 'Content-Type: application/json' \
-  -d '{"model":"auto","messages":[{"role":"user","content":"What is photosynthesis?"}]}' | jq .
+  -d '{"model":"Qwen/Qwen2.5-1.5B-Instruct","messages":[{"role":"user","content":"What is 2+2?"}]}' | jq .
 ```
+
+## GPU Support
+
+### Prerequisites
+
+The host must have:
+- NVIDIA GPU with drivers pre-installed
+- `nvidia-container-toolkit` package (baked into the bootc image)
+
+### DGX Spark / GB10
+
+The NVIDIA GB10 (Blackwell, CUDA capability 12.1) has unified memory shared
+with the CPU. The vLLM deployment accounts for this:
+
+- `--gpu-memory-utilization 0.5` — only uses 50% of reported GPU memory
+  (the rest is shared with the system)
+- `--enforce-eager` — disables Triton/torch.compile (the bundled ptxas
+  doesn't support `sm_121a` yet)
+
+### Boot-time automation
+
+The `generate-nvidia-cdi.sh` systemd service runs on every boot before
+MicroShift and:
+1. Configures CRI-O with the NVIDIA container runtime (`nvidia-ctk runtime configure`)
+2. Generates CDI specs at `/etc/cdi/nvidia.yaml`
 
 ## Switching Modes
 
@@ -154,9 +226,7 @@ sudo configure-semantic-router.sh router.yaml
 
 ## Reconfiguring
 
-Edit `router.yaml` (models, endpoints, API keys) and re-run
-`configure-semantic-router.sh`. It updates the ConfigMap/Secret and restarts the
-deployment.
+Edit `router.yaml` and re-run `configure-semantic-router.sh`:
 
 ```bash
 sudo configure-semantic-router.sh router.yaml
@@ -164,14 +234,15 @@ sudo configure-semantic-router.sh router.yaml
 
 ## What's Baked vs Runtime
 
-| Baked in image (immutable) | Configured post-boot (`router.yaml`) |
+| Baked in image (immutable) | Configured post-boot |
 |---|---|
-| Namespace, Deployments, Services | Model names |
-| Prometheus + Grafana (full mode) | LiteLLM endpoint(s) |
-| Container images (pre-pulled) | LiteLLM API key(s) |
-| Firewall rules, systemd units | Default model |
-| TopoLVM storage (loopback VG) | |
-| Routing decisions, signals | |
+| Namespace, Deployments, Services | Model names (`router.yaml`) |
+| Prometheus + Grafana (full mode) | LLM endpoint(s) and API key(s) |
+| vLLM SLM deployment + container image | Default model |
+| NVIDIA Container Toolkit + CDI service | GPU Operator (Helm, `setup-gpu-operator.sh`) |
+| Helm binary | |
+| Container images (pre-pulled) | |
+| Firewall rules, systemd units | |
 | Config templates | |
 
 ## File Layout
@@ -181,33 +252,35 @@ hybrid-inference-in-a-box/
 ├── Containerfile
 ├── .github/workflows/
 │   └── build-bootc.yaml              ← CI/CD: build & push to GHCR
-├── manifests/semantic-router/
-│   ├── kustomization.yaml
-│   ├── base/
+├── manifests/
+│   ├── semantic-router/
 │   │   ├── kustomization.yaml
-│   │   └── namespace.yaml
-│   └── overlays/
-│       ├── full/
-│       │   ├── kustomization.yaml
-│       │   ├── deployment.yaml
-│       │   ├── service.yaml
-│       │   ├── prometheus.yaml
-│       │   └── grafana.yaml
-│       └── slim/
+│   │   ├── base/
+│   │   │   ├── kustomization.yaml
+│   │   │   └── namespace.yaml
+│   │   └── overlays/
+│   │       ├── full/                  ← vllm-sr + grafana + prometheus
+│   │       └── slim/                  ← extproc + envoy sidecar
+│   └── vllm-slm/
+│       ├── kustomization.yaml
+│       └── base/
 │           ├── kustomization.yaml
-│           ├── deployment.yaml
-│           └── service.yaml
+│           ├── namespace.yaml
+│           ├── deployment.yaml        ← vLLM + Qwen2.5-1.5B on GPU
+│           └── service.yaml           ← NodePort 30500
 ├── config/
-│   ├── router.yaml.example              ← sample config for configure-semantic-router.sh
+│   ├── router.yaml.example           ← sample config (external + local models)
 │   ├── llm-router-dashboard.json
 │   └── templates/
 │       ├── config-full.yaml.tmpl
 │       ├── config-slim.yaml.tmpl
 │       └── envoy-slim.yaml.tmpl
 ├── scripts/
-│   ├── configure-semantic-router.sh            ← post-boot configuration
-│   ├── select-mode.sh                 ← switch full ↔ slim
-│   ├── start-bootc-vm.sh              ← create VM from bootc image
+│   ├── configure-semantic-router.sh   ← post-boot router configuration
+│   ├── setup-gpu-operator.sh          ← install NVIDIA GPU Operator (Helm)
+│   ├── generate-nvidia-cdi.sh         ← CRI-O runtime + CDI specs (systemd)
+│   ├── select-mode.sh                 ← switch full / slim
+│   ├── start-bootc-vm.sh             ← create VM from bootc image
 │   ├── create-vg.sh                   ← loopback LVM VG for TopoLVM
 │   └── make-rshared.service
 └── README.md
@@ -218,18 +291,39 @@ hybrid-inference-in-a-box/
 **Pods stuck in CreateContainerConfigError:**
 Run `configure-semantic-router.sh` — the pods are waiting for ConfigMap/Secret.
 
+**vLLM SLM pod stuck in Pending:**
+The GPU Operator hasn't advertised `nvidia.com/gpu` yet. Run
+`setup-gpu-operator.sh` and check:
+```bash
+sudo kubectl get nodes -o jsonpath='{.items[0].status.allocatable}' | python3 -m json.tool | grep nvidia
+```
+
+**vLLM SLM crashes with "Free memory ... less than desired":**
+The default `--gpu-memory-utilization` is too high for unified memory GPUs.
+Edit the deployment:
+```bash
+sudo kubectl -n vllm-slm edit deployment vllm-slm
+# Lower --gpu-memory-utilization (default: 0.5, try 0.3)
+```
+
+**vLLM crashes with "ptxas fatal: Value 'sm_121a' is not defined":**
+The GPU architecture is too new for the bundled Triton. The deployment
+includes `--enforce-eager` to work around this. If you removed it, add it
+back.
+
+**GPU Operator pods stuck (SCC errors):**
+The `setup-gpu-operator.sh` script grants SCCs automatically. If you
+installed manually, grant them:
+```bash
+oc adm policy add-scc-to-user privileged -n gpu-operator -z node-feature-discovery
+oc adm policy add-scc-to-user privileged -n gpu-operator -z nvidia-device-plugin
+# ... (see setup-gpu-operator.sh for the full list)
+```
+
 **TopoLVM pods in CrashLoopBackOff:**
-The `create-vg` service should create the `myvg1` volume group automatically.
-Verify it ran:
 ```bash
 sudo systemctl status create-vg
 sudo vgs myvg1
-```
-
-**Pods stuck in ImagePullBackOff:**
-Pre-pulled images may not have been copied correctly. Check CRI-O storage:
-```bash
-sudo crictl images
 ```
 
 **MicroShift not starting:**
@@ -238,19 +332,7 @@ sudo systemctl status microshift
 sudo journalctl -u microshift --no-pager -l
 ```
 
-**Router not connecting to LiteLLM:**
-Test connectivity from the node:
+**Router not connecting to LLM endpoint:**
 ```bash
 curl -s https://<endpoint>/models -H 'Authorization: Bearer <key>'
 ```
-
-## Risks & Notes
-
-- CentOS Stream 10 bootc base image is relatively new — fall back to RHEL 9
-  bootc if you encounter build issues
-- The `skopeo copy` pre-pull mechanism needs validation on CS10 bootc;
-  alternatives include directory-based mirroring or MicroShift's
-  `mirror-images.sh`
-- The Grafana init container uses `python:3.12-alpine` to pre-seed the
-  dashboard short URL — this image should also be pre-pulled for air-gapped
-  operation
