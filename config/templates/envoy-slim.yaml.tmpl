@@ -74,12 +74,8 @@ static_resources:
             address:
               socket_address:
                 address: __ENDPOINT_GENERAL__
-                port_value: 443
-    transport_socket:
-      name: envoy.transport_sockets.tls
-      typed_config:
-        "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
-        sni: __ENDPOINT_GENERAL__
+                port_value: __PORT__
+__TLS_TRANSPORT_SOCKET__
 admin:
   address:
     socket_address:

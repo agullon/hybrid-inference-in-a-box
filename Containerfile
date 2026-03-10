@@ -39,7 +39,19 @@ RUN chmod +x /usr/local/bin/create-vg.sh && \
     printf '[Unit]\nDescription=Create loopback LVM VG for TopoLVM\nBefore=microshift.service\nAfter=local-fs.target\n\n[Service]\nType=oneshot\nExecStart=/usr/local/bin/create-vg.sh\nRemainAfterExit=yes\n\n[Install]\nWantedBy=multi-user.target\n' \
       > /etc/systemd/system/create-vg.service
 
-RUN systemctl enable firewalld microshift make-rshared create-vg
+# ─────────────────────────────────────────────────────────────────────────────
+# NVIDIA Container Toolkit + CDI — expose GPUs to CRI-O via CDI specs
+# ─────────────────────────────────────────────────────────────────────────────
+# The NVIDIA device plugin runs in CDI mode (required for integrated GPUs like
+# the GB10 / DGX Spark where NVML can't enumerate device memory). CDI specs
+# are generated on every boot before MicroShift starts.
+RUN dnf install -y nvidia-container-toolkit && dnf clean all
+COPY scripts/generate-nvidia-cdi.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/generate-nvidia-cdi.sh && \
+    printf '[Unit]\nDescription=Generate NVIDIA CDI specs for CRI-O\nBefore=microshift.service\nAfter=local-fs.target\n\n[Service]\nType=oneshot\nExecStart=/usr/local/bin/generate-nvidia-cdi.sh\nRemainAfterExit=yes\n\n[Install]\nWantedBy=multi-user.target\n' \
+      > /etc/systemd/system/generate-nvidia-cdi.service
+
+RUN systemctl enable firewalld microshift make-rshared create-vg generate-nvidia-cdi
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Kustomize manifests — infrastructure only, no configuration baked in
@@ -49,6 +61,7 @@ RUN systemctl enable firewalld microshift make-rshared create-vg
 # and Secrets that don't exist yet — pods will wait until
 # configure-semantic-router.sh creates them post-boot.
 COPY manifests/semantic-router/ /usr/lib/microshift/manifests.d/semantic-router/
+COPY manifests/vllm-slm/ /usr/lib/microshift/manifests.d/vllm-slm/
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Configuration templates + helper scripts
@@ -57,7 +70,14 @@ COPY config/templates/ /etc/semantic-router/templates/
 COPY config/llm-router-dashboard.json /etc/semantic-router/
 COPY scripts/configure-semantic-router.sh /usr/local/bin/
 COPY scripts/select-mode.sh /usr/local/bin/
-RUN chmod +x /usr/local/bin/configure-semantic-router.sh /usr/local/bin/select-mode.sh
+COPY scripts/setup-gpu-operator.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/configure-semantic-router.sh /usr/local/bin/select-mode.sh \
+    /usr/local/bin/setup-gpu-operator.sh
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Helm — needed to install the NVIDIA GPU Operator post-boot
+# ─────────────────────────────────────────────────────────────────────────────
+RUN curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Default user — passwordless SSH for quick access to the appliance
@@ -85,7 +105,9 @@ RUN cp /etc/subuid /etc/subuid.bak 2>/dev/null || true && \
       ghcr.io/vllm-project/semantic-router/extproc:latest \
       docker.io/envoyproxy/envoy:v1.31.7 \
       docker.io/prom/prometheus:v2.53.3 \
-      docker.io/grafana/grafana:11.4.0" && \
+      docker.io/grafana/grafana:11.4.0 \
+      vllm/vllm-openai:latest \
+      " && \
     mkdir -p /usr/lib/containers/storage && \
     for img in ${IMAGES}; do \
       sha="$(echo "${img}" | sha256sum | awk '{print $1}')" && \

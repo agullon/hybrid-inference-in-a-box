@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: vllm-slm
+  labels:
+    app.kubernetes.io/name: vllm-slm
+    app.kubernetes.io/part-of: hybrid-inference
