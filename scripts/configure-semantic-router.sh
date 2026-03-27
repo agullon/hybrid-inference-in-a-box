@@ -302,9 +302,27 @@ for name in "${MODEL_NAMES[@]}"; do
 done
 echo ""
 if [[ "${MODE}" == "full" ]]; then
+    # Auto-login to the dashboard and generate a direct-access URL with auth token
+    DASHBOARD_URL="http://${NODE_IP}:30700"
+    AUTH_TOKEN=""
+    info "Waiting for semantic-router rollout..."
+    if ${KUBECTL} -n "${NAMESPACE}" rollout status deployment/semantic-router --timeout=300s 2>/dev/null; then
+        AUTH_TOKEN=$(curl -s --max-time 10 \
+            -X POST "http://${NODE_IP}:30700/api/auth/login" \
+            -H "Content-Type: application/json" \
+            -d '{"email":"love@vllm-sr.ai","password":"vllm-sr"}' 2>/dev/null \
+            | python3 -c "import json,sys; print(json.loads(sys.stdin.read())['token'])" 2>/dev/null) || true
+    fi
+
     echo " Endpoints (once running):"
     echo "   API:       http://${NODE_IP}:30801/v1/chat/completions"
-    echo "   Dashboard: http://${NODE_IP}:30700"
+    if [[ -n "${AUTH_TOKEN}" ]]; then
+        echo "   Dashboard: ${DASHBOARD_URL}?authToken=${AUTH_TOKEN}"
+        echo "     Login:   love@vllm-sr.ai / vllm-sr (if token expired)"
+    else
+        echo "   Dashboard: ${DASHBOARD_URL}"
+        echo "     Login:   love@vllm-sr.ai / vllm-sr"
+    fi
     echo "   Grafana:   http://${NODE_IP}:30300"
 else
     echo " Endpoint (once running):"

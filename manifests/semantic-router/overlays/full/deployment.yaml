@@ -64,6 +64,16 @@ spec:
           value: "http://prometheus.semantic-router.svc:9090"
         - name: TARGET_GRAFANA_URL
           value: "http://grafana.semantic-router.svc:3000"
+        - name: DASHBOARD_ADMIN_EMAIL
+          value: "love@vllm-sr.ai"
+        - name: DASHBOARD_ADMIN_PASSWORD
+          value: "vllm-sr"
+        - name: DASHBOARD_ADMIN_NAME
+          value: "Admin"
+        - name: DASHBOARD_JWT_SECRET
+          value: "hiiab-demo-secret"
+        - name: DASHBOARD_JWT_EXPIRY_HOURS
+          value: "8760"
         volumeMounts:
         - name: config-writable
           mountPath: /app/config.yaml

@@ -186,6 +186,10 @@ downloads ~500MB.
 | Dashboard (full) | `http://<IP>:30700` |
 | Grafana (full) | `http://<IP>:30300` |
 
+The `configure-semantic-router.sh` script automatically logs in and prints a
+direct-access dashboard URL with an embedded auth token (`?authToken=...`).
+If the token expires, use the credentials `love@vllm-sr.ai` / `vllm-sr`.
+
 ### 7. Test
 
 ```bash
