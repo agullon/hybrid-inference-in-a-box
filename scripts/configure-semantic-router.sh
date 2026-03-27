@@ -23,7 +23,6 @@ set -euo pipefail
 NAMESPACE="semantic-router"
 KUBECTL="sudo kubectl"
 TEMPLATE_DIR="/etc/semantic-router/templates"
-MANIFEST_DIR="/usr/lib/microshift/manifests.d/semantic-router"
 DASHBOARD_JSON="/etc/semantic-router/llm-router-dashboard.json"
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -94,24 +93,9 @@ if [[ ${#MODEL_NAMES[@]} -lt 1 ]]; then
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Detect current mode
-# ─────────────────────────────────────────────────────────────────────────────
-MODE="full"
-if [[ -f "${MANIFEST_DIR}/kustomization.yaml" ]]; then
-    if grep -q "overlays/slim" "${MANIFEST_DIR}/kustomization.yaml" 2>/dev/null; then
-        MODE="slim"
-    fi
-fi
-info "Detected mode: ${MODE}"
-
-# ─────────────────────────────────────────────────────────────────────────────
 # Render the final config: inject providers into template
 # ─────────────────────────────────────────────────────────────────────────────
-if [[ "${MODE}" == "full" ]]; then
-    TEMPLATE="${TEMPLATE_DIR}/config-full.yaml.tmpl"
-else
-    TEMPLATE="${TEMPLATE_DIR}/config-slim.yaml.tmpl"
-fi
+TEMPLATE="${TEMPLATE_DIR}/config.yaml.tmpl"
 
 if [[ ! -f "${TEMPLATE}" ]]; then
     err "Template not found: ${TEMPLATE}"
@@ -127,7 +111,6 @@ if [[ ${#MODEL_NAMES[@]} -lt ${PLACEHOLDER_COUNT} ]]; then
 fi
 
 # Read the config file (providers section) and inject into the template
-PROVIDERS_CONTENT=$(cat "${CONFIG_FILE}")
 RENDERED_CONFIG=$(python3 -c "
 import sys
 template = open(sys.argv[1]).read()
@@ -164,72 +147,6 @@ ${KUBECTL} -n "${NAMESPACE}" create configmap router-config \
 ok "ConfigMap/router-config created"
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Envoy config (slim mode only)
-# ─────────────────────────────────────────────────────────────────────────────
-if [[ "${MODE}" == "slim" ]]; then
-    ENVOY_TMPL="${TEMPLATE_DIR}/envoy-slim.yaml.tmpl"
-    if [[ ! -f "${ENVOY_TMPL}" ]]; then
-        err "Envoy template not found: ${ENVOY_TMPL}"
-    fi
-
-    # Extract the first endpoint hostname, port, and protocol for Envoy upstream
-    read -r ENVOY_HOST ENVOY_PORT ENVOY_PROTOCOL < <(python3 -c "
-import yaml, sys
-from urllib.parse import urlparse
-cfg = yaml.safe_load(open(sys.argv[1]))
-for m in cfg.get('providers', {}).get('models', []):
-    for ep in m.get('endpoints', []):
-        url = ep.get('endpoint', '')
-        protocol = ep.get('protocol', 'https')
-        parsed = urlparse(url if '://' in url else 'http://' + url)
-        host = parsed.hostname or ''
-        port = parsed.port
-        if not port:
-            port = 443 if protocol == 'https' else 8000
-        if host:
-            print(f'{host} {port} {protocol}')
-            sys.exit(0)
-sys.exit(1)
-" "${CONFIG_FILE}") || true
-
-    if [[ -z "${ENVOY_HOST}" ]]; then
-        err "Could not extract endpoint from config for Envoy"
-    fi
-
-    # Basic hostname sanity check
-    if [[ "${ENVOY_HOST}" != *.* ]]; then
-        warn "Endpoint '${ENVOY_HOST}' does not look like a valid hostname (no dots)."
-    fi
-
-    info "Rendering Envoy config (upstream: ${ENVOY_HOST}:${ENVOY_PORT}, protocol: ${ENVOY_PROTOCOL})..."
-
-    # Build the TLS transport_socket block (only for https endpoints)
-    TLS_BLOCK=""
-    if [[ "${ENVOY_PROTOCOL}" == "https" ]]; then
-        TLS_BLOCK=$(cat <<'TLSEOF'
-    transport_socket:
-      name: envoy.transport_sockets.tls
-      typed_config:
-        "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
-        sni: __ENDPOINT_GENERAL__
-TLSEOF
-)
-        TLS_BLOCK="${TLS_BLOCK//__ENDPOINT_GENERAL__/${ENVOY_HOST}}"
-    fi
-
-    RENDERED_ENVOY=$(sed \
-        -e "s|__ENDPOINT_GENERAL__|${ENVOY_HOST}|g" \
-        -e "s|__PORT__|${ENVOY_PORT}|g" \
-        "${ENVOY_TMPL}")
-    RENDERED_ENVOY="${RENDERED_ENVOY//__TLS_TRANSPORT_SOCKET__/${TLS_BLOCK}}"
-
-    ${KUBECTL} -n "${NAMESPACE}" create configmap envoy-config \
-        --from-literal=envoy.yaml="${RENDERED_ENVOY}" \
-        --dry-run=client -o yaml | ${KUBECTL} apply -f -
-    ok "ConfigMap/envoy-config created"
-fi
-
-# ─────────────────────────────────────────────────────────────────────────────
 # Create Secret from access_keys in the config
 # ─────────────────────────────────────────────────────────────────────────────
 # The deployment mounts the secret key "api-key" as the LITELLM_API_KEY env var.
@@ -252,9 +169,9 @@ if [[ -n "${API_KEY}" ]]; then
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Create Grafana dashboard ConfigMap (full mode only)
+# Create Grafana dashboard ConfigMap
 # ─────────────────────────────────────────────────────────────────────────────
-if [[ "${MODE}" == "full" && -f "${DASHBOARD_JSON}" ]]; then
+if [[ -f "${DASHBOARD_JSON}" ]]; then
     info "Creating Grafana dashboard ConfigMap..."
     ${KUBECTL} -n "${NAMESPACE}" create configmap grafana-dashboard \
         --from-file=llm-router-dashboard.json="${DASHBOARD_JSON}" \
@@ -267,10 +184,7 @@ fi
 # ─────────────────────────────────────────────────────────────────────────────
 info "Restarting semantic-router deployment..."
 ${KUBECTL} -n "${NAMESPACE}" rollout restart deployment/semantic-router 2>/dev/null || true
-
-if [[ "${MODE}" == "full" ]]; then
-    ${KUBECTL} -n "${NAMESPACE}" rollout restart deployment/grafana 2>/dev/null || true
-fi
+${KUBECTL} -n "${NAMESPACE}" rollout restart deployment/grafana 2>/dev/null || true
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Print status
@@ -289,7 +203,7 @@ fi
 
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo " Configuration Applied (${MODE} mode)"
+echo " Configuration Applied"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 echo " Models:"
@@ -301,15 +215,10 @@ for name in "${MODEL_NAMES[@]}"; do
     fi
 done
 echo ""
-if [[ "${MODE}" == "full" ]]; then
-    echo " Endpoints (once running):"
-    echo "   API:       http://${NODE_IP}:30801/v1/chat/completions"
-    echo "   Dashboard: http://${NODE_IP}:30700"
-    echo "   Grafana:   http://${NODE_IP}:30300"
-else
-    echo " Endpoint (once running):"
-    echo "   API:       http://${NODE_IP}:30801/v1/chat/completions"
-fi
+echo " Endpoints (once running):"
+echo "   API:       http://${NODE_IP}:30801/v1/chat/completions"
+echo "   Dashboard: http://${NODE_IP}:30700"
+echo "   Grafana:   http://${NODE_IP}:30300"
 echo ""
 echo " Monitor:"
 echo "   sudo kubectl -n ${NAMESPACE} get pods -w"
