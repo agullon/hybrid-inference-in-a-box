@@ -103,31 +103,35 @@ fi
 
 info "Rendering config from ${TEMPLATE}..."
 
-# Validate model count against template placeholders
-PLACEHOLDER_COUNT=$(grep -oE '__MODEL_[0-9]+__' "${TEMPLATE}" | sort -u | wc -l | tr -d ' ')
-if [[ ${#MODEL_NAMES[@]} -lt ${PLACEHOLDER_COUNT} ]]; then
-    warn "Config provides ${#MODEL_NAMES[@]} model(s) but template expects ${PLACEHOLDER_COUNT}."
-    warn "Unsubstituted __MODEL_N__ placeholders will remain in the rendered config."
-fi
-
 # Read the config file (providers section) and inject into the template
+# Also generate routing.modelCards entries from the model names
+# Use Python for the full rendering to avoid bash escape issues with newlines
 RENDERED_CONFIG=$(python3 -c "
-import sys
+import sys, yaml
+
 template = open(sys.argv[1]).read()
 providers = open(sys.argv[2]).read()
-print(template.replace('__PROVIDERS__', providers))
+cfg = yaml.safe_load(open(sys.argv[2]))
+models = [m['name'] for m in cfg.get('providers', {}).get('models', [])]
+
+# Generate modelCards YAML entries
+model_cards = ''
+for name in models:
+    model_cards += '    - name: \"' + name + '\"\n'
+
+result = template.replace('__PROVIDERS__', providers)
+result = result.replace('__MODEL_CARDS__', model_cards)
+
+# Substitute __MODEL_N__ placeholders with model names
+for i, name in enumerate(models):
+    result = result.replace(f'__MODEL_{i}__', name)
+
+# Fill any remaining __MODEL_N__ with the first model (fewer models than decisions)
+import re
+result = re.sub(r'__MODEL_\d+__', models[0], result)
+
+print(result)
 " "${TEMPLATE}" "${CONFIG_FILE}")
-
-# Substitute __MODEL_N__ placeholders with actual model names from the config
-for i in "${!MODEL_NAMES[@]}"; do
-    RENDERED_CONFIG="${RENDERED_CONFIG//__MODEL_${i}__/${MODEL_NAMES[$i]}}"
-done
-
-# Check for any remaining unsubstituted placeholders
-REMAINING=$(echo "${RENDERED_CONFIG}" | grep -oE '__MODEL_[0-9]+__' | sort -u || true)
-if [[ -n "${REMAINING}" ]]; then
-    warn "Unsubstituted placeholders in rendered config: ${REMAINING//$'\n'/, }"
-fi
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Ensure namespace exists
@@ -150,15 +154,21 @@ ok "ConfigMap/router-config created"
 # Create Secret from access_keys in the config
 # ─────────────────────────────────────────────────────────────────────────────
 # The deployment mounts the secret key "api-key" as the LITELLM_API_KEY env var.
-# We use the first access_key found in the config file.
+# We use the first api_key found in backend_refs (v0.3) or access_key (v0.1).
 info "Creating Secret/litellm-credentials..."
 API_KEY=$(python3 -c "
 import yaml, sys
 cfg = yaml.safe_load(open(sys.argv[1]))
 for m in cfg.get('providers', {}).get('models', []):
-    if 'access_key' in m:
-        print(m['access_key'])
-        break
+    for br in m.get('backend_refs', []):
+        k = br.get('api_key', '')
+        if k:
+            print(k)
+            sys.exit(0)
+    k = m.get('access_key', '')
+    if k:
+        print(k)
+        sys.exit(0)
 " "${CONFIG_FILE}")
 
 if [[ -n "${API_KEY}" ]]; then
@@ -192,7 +202,8 @@ ${KUBECTL} -n "${NAMESPACE}" rollout restart deployment/grafana 2>/dev/null || t
 DEFAULT_MODEL=$(python3 -c "
 import yaml, sys
 cfg = yaml.safe_load(open(sys.argv[1]))
-print(cfg.get('providers', {}).get('default_model', ''))
+p = cfg.get('providers', {})
+print(p.get('defaults', {}).get('default_model', '') or p.get('default_model', ''))
 " "${CONFIG_FILE}")
 
 # Detect the node IP address for endpoint URLs

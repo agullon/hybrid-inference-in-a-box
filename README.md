@@ -134,40 +134,39 @@ sudo configure-semantic-router.sh router.yaml
 
 ```yaml
 providers:
+  defaults:
+    default_model: "Mistral-Small-24B-W8A8"
   models:
     - name: "Mistral-Small-24B-W8A8"
-      endpoints:
+      backend_refs:
         - name: "litellm"
           weight: 1
           endpoint: "litellm.example.com:443"
           protocol: "https"
-      access_key: "sk-your-key-here"
-
-  default_model: "Mistral-Small-24B-W8A8"
+          api_key: "sk-your-key-here"
 ```
 
 **Hybrid** (local SLM + external LLMs — requires GPU build):
 
 ```yaml
 providers:
+  defaults:
+    default_model: "Qwen2.5-1.5B-Instruct"
   models:
     - name: "Mistral-Small-24B-W8A8"
-      endpoints:
+      backend_refs:
         - name: "litellm"
           weight: 1
           endpoint: "litellm.example.com:443"
           protocol: "https"
-      access_key: "sk-your-key-here"
+          api_key: "sk-your-key-here"
 
     - name: "Qwen2.5-1.5B-Instruct"
-      endpoints:
+      backend_refs:
         - name: "local-vllm"
           weight: 1
           endpoint: "vllm-slm.vllm-slm.svc:8000"
           protocol: "http"
-      access_key: "none"
-
-  default_model: "Qwen2.5-1.5B-Instruct"
 ```
 
 ### 5. Wait for router pods
