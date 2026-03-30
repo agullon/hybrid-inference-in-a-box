@@ -92,9 +92,29 @@ fi
 # ─────────────────────────────────────────────────────────────────────────────
 OUTPUT_DIR="${VM_DIR}/${VM_NAME}-output"
 mkdir -p "${OUTPUT_DIR}"
+mkdir -p "${VM_DIR}/bib-tmp"
 
-echo "STEP-01 Pulling ${IMAGE}..."
-sudo podman pull "${IMAGE}"
+if [[ "${IMAGE}" == localhost/* ]]; then
+    echo "STEP-01 Using local image ${IMAGE}..."
+
+    # Reset rootful podman storage to clear all stale locks/containers/volumes
+    echo "STEP-01 Resetting rootful podman storage..."
+    sudo podman system reset -f 2>/dev/null || true
+
+    # Transfer the image from rootless to rootful storage
+    echo "STEP-01 Transferring ${IMAGE} to rootful podman storage..."
+    podman save "${IMAGE}" | sudo podman load
+
+    # Verify the image is now accessible
+    if ! sudo podman image inspect "${IMAGE}" --format '{{.Id}}' >/dev/null 2>&1; then
+        echo "ERROR: Failed to transfer ${IMAGE} to rootful storage"
+        exit 1
+    fi
+    echo "STEP-01 Image verified in rootful storage."
+else
+    echo "STEP-01 Pulling ${IMAGE}..."
+    sudo podman pull "${IMAGE}"
+fi
 
 echo "STEP-02 Building qcow2 from ${IMAGE}..."
 sudo podman run \
@@ -103,6 +123,7 @@ sudo podman run \
     --pull=newer \
     --security-opt label=type:unconfined_t \
     -v "${OUTPUT_DIR}":/output \
+    -v "${VM_DIR}/bib-tmp":/var/tmp \
     -v /var/lib/containers/storage:/var/lib/containers/storage \
     quay.io/centos-bootc/bootc-image-builder:latest \
     --type qcow2 \
