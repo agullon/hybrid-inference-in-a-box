@@ -1,4 +1,17 @@
 ARG MICROSHIFT_VERSION=4.21.0_g29f429c21_4.21.0_okd_scos.ec.15
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Stage 1: Pre-download semantic-router ML models (~18GB)
+# ─────────────────────────────────────────────────────────────────────────────
+# Run the vllm-sr router briefly to trigger model downloads into /root/.cache.
+# This runs directly in the vllm-sr image (no nested podman needed).
+FROM ghcr.io/vllm-project/semantic-router/vllm-sr:latest AS model-cache
+COPY scripts/preload-models-config.yaml /tmp/config.yaml
+RUN timeout 300 /app/start-router.sh /tmp/config.yaml /app/.vllm-sr || true
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Stage 2: Main bootc appliance image
+# ─────────────────────────────────────────────────────────────────────────────
 FROM ghcr.io/microshift-io/microshift:${MICROSHIFT_VERSION}
 
 ARG ENABLE_GPU=true
@@ -78,7 +91,14 @@ COPY config/templates/ /etc/semantic-router/templates/
 COPY config/llm-router-dashboard.json /etc/semantic-router/
 COPY scripts/configure-semantic-router.sh /usr/local/bin/
 COPY scripts/setup-gpu-operator.sh /usr/local/bin/
-RUN chmod +x /usr/local/bin/configure-semantic-router.sh /usr/local/bin/setup-gpu-operator.sh
+RUN chmod +x /usr/local/bin/configure-semantic-router.sh \
+             /usr/local/bin/setup-gpu-operator.sh
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Pre-downloaded semantic-router ML models (~18GB)
+# ─────────────────────────────────────────────────────────────────────────────
+# Copied from the model-cache build stage to avoid first-boot download delays
+COPY --from=model-cache /root/.cache /var/cache/vllm-sr
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Helm — needed to install the NVIDIA GPU Operator post-boot (GPU builds only)

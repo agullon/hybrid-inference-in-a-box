@@ -64,8 +64,14 @@ podman build --build-arg ENABLE_GPU=false -t hybrid-inference-bootc:latest -f Co
 ```
 
 The `ENABLE_GPU=false` build skips the NVIDIA container toolkit, local SLM
-manifests, vLLM image pre-pull, and Helm. The resulting image is smaller and
-builds on any host without NVIDIA repos.
+manifests, vLLM image pre-pull, and Helm. The resulting image builds on any
+host without NVIDIA repos.
+
+**ML Model Pre-loading:** The image build pre-downloads semantic-router ML
+models (~18GB including jailbreak detection, PII detection, and domain
+classification models) to eliminate first-boot download delays. This increases
+the final image size to ~24GB but ensures VMs boot with fully operational
+semantic routing immediately.
 
 CI builds run automatically on push to `main` and publish multi-arch
 (amd64 + arm64) manifest lists to
@@ -75,9 +81,10 @@ CI builds run automatically on push to `main` and publish multi-arch
 ## First Boot
 
 > [!NOTE]
-> On first boot, infrastructure pods may show `CreateContainerConfigError`
+> On first boot, infrastructure pods may briefly show `CreateContainerConfigError`
 > (waiting for ConfigMap/Secret). If built with GPU support, the vLLM SLM
-> pod will show `Pending` (waiting for GPU resources). This is expected.
+> pod will show `Pending` (waiting for GPU resources). semantic-router pods
+> start immediately since ML models are pre-loaded during image build.
 
 ### 1. Boot the image
 

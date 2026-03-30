@@ -37,8 +37,8 @@ for arg in "$@"; do
     esac
 done
 
-RAM=8192
-VCPUS=4
+RAM=16384
+VCPUS=8
 DISK_SIZE=100
 
 VM_NAME="${VM_NAME:-bootc-vm-$(date +%Y%m%d%H%M%S)}"

@@ -50,11 +50,11 @@ spec:
           protocol: TCP
         env:
         - name: HOME
-          value: "/tmp"
+          value: "/var/cache/vllm-sr"
         - name: HF_HOME
-          value: "/tmp/hf-cache"
+          value: "/var/cache/vllm-sr/huggingface"
         - name: HUGGINGFACE_HUB_CACHE
-          value: "/tmp/hf-cache"
+          value: "/var/cache/vllm-sr/huggingface"
         - name: LITELLM_API_KEY
           valueFrom:
             secretKeyRef:
@@ -70,8 +70,8 @@ spec:
           subPath: config.yaml
         - name: models
           mountPath: /app/models
-        - name: hf-cache
-          mountPath: /tmp/hf-cache
+        - name: model-cache
+          mountPath: /var/cache/vllm-sr
         - name: vllm-sr-workdir
           mountPath: /app/.vllm-sr
         - name: envoy-config
@@ -113,9 +113,10 @@ spec:
       - name: models
         emptyDir:
           sizeLimit: 25Gi
-      - name: hf-cache
-        emptyDir:
-          sizeLimit: 25Gi
+      - name: model-cache
+        hostPath:
+          path: /var/cache/vllm-sr
+          type: Directory
       - name: vllm-sr-workdir
         emptyDir: {}
       - name: envoy-config
