@@ -63,6 +63,8 @@ RUN chmod +x /usr/local/bin/create-vg.sh && \
 COPY scripts/generate-nvidia-cdi.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/generate-nvidia-cdi.sh && \
     if [ "${ENABLE_GPU}" = "true" ]; then \
+      curl -fsSL https://nvidia.github.io/libnvidia-container/stable/rpm/nvidia-container-toolkit.repo \
+        -o /etc/yum.repos.d/nvidia-container-toolkit.repo && \
       dnf install -y nvidia-container-toolkit && dnf clean all && \
       printf '[Unit]\nDescription=Generate NVIDIA CDI specs for CRI-O\nBefore=microshift.service\nAfter=local-fs.target\n\n[Service]\nType=oneshot\nExecStart=/usr/local/bin/generate-nvidia-cdi.sh\nRemainAfterExit=yes\n\n[Install]\nWantedBy=multi-user.target\n' \
         > /etc/systemd/system/generate-nvidia-cdi.service && \
