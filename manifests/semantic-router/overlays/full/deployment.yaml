@@ -60,6 +60,7 @@ spec:
             secretKeyRef:
               name: litellm-credentials
               key: api-key
+              optional: true
         - name: TARGET_PROMETHEUS_URL
           value: "http://prometheus.semantic-router.svc:9090"
         - name: TARGET_GRAFANA_URL
